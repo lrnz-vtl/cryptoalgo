@@ -10,6 +10,7 @@ from sklearn.preprocessing import RobustScaler, StandardScaler
 from algo.binance.experiment import ExpArgs, Experiment, fit_eval_products, Validator
 from algo.binance.features import VolumeOptions, FeatureOptions
 from algo.binance.fit import ResidOptions, UniverseDataOptions, ModelOptions
+from algo.binance.utils import TrainTestOptions
 
 if __name__ == '__main__':
 
@@ -26,16 +27,25 @@ if __name__ == '__main__':
                                      forward_hour=forward_hour,
                                      target_scaler=lambda: RobustScaler()
                                      )
+    start_date = datetime.datetime(year=2022, month=1, day=1)
+    end_date = datetime.datetime(year=2023, month=1, day=1)
+
+    tto = TrainTestOptions(
+        train_end_time=datetime.datetime(year=2022, month=8, day=1),
+        test_start_time=datetime.datetime(year=2022, month=8, day=3),
+        min_train_period=datetime.timedelta(days=30 * 6)
+    )
 
     exp_args = ExpArgs(
         mcap_date=datetime.date(year=2022, month=1, day=1),
-        n_coins=20,
-        start_date=datetime.datetime(year=2022, month=1, day=1),
-        end_date=datetime.datetime(year=2023, month=1, day=1),
+        n_coins=100,
+        start_date=start_date,
+        end_date=end_date,
         feature_options=feature_options,
         ro=ro,
         ud_options=ud_options,
-        spot=spot
+        spot=spot,
+        tto=tto
     )
 
 

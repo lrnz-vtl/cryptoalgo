@@ -4,10 +4,13 @@ from typing import Callable, Optional, Any, Iterable
 import numpy as np
 import pandas as pd
 import scipy.stats.mstats
-from algo.cpp.cseries import shift_forward, compute_ema, compute_expsum
+from algo.cpp.cseries import shift_forward
 from sklearn.linear_model._base import LinearModel
+
+from algo.binance.coins import PairDataGenerator
 from algo.binance.compute_betas import BetaStore
 from algo.binance.features import ms_in_hour, FeatureOptions, features_from_data
+from algo.binance.utils import TrainTestOptions, to_datetime
 
 max_lag_hours = 48
 
@@ -91,6 +94,8 @@ class UniverseFitResults:
     res_global: Optional[FitResults]
 
 
+
+
 def fit_eval_model(data: FitData,
                    opt: ModelOptions):
     lm = opt.get_lm()
@@ -119,19 +124,22 @@ def fit_eval_model(data: FitData,
 
 class ProductDataStore:
 
-    def __init__(self, df: pd.DataFrame, ema_options: FeatureOptions):
+    def __init__(self, df: pd.DataFrame, ema_options: FeatureOptions, opt: TrainTestOptions):
         self.logger = logging.getLogger(__name__)
 
         self.price_ts = ((df['Close'] + df['Open']) / 2.0).rename('price')
         self.feature_df = features_from_data(df, ema_options)
 
-        end_train_time = self.feature_df.index.min() + train_months * ms_in_month
-        self.start_test_time = end_train_time + max_lag_hours * ms_in_hour
+        self.train_idx = to_datetime(self.feature_df.index) < opt.train_end_time
+        self.test_idx = to_datetime(self.feature_df.index) > opt.test_start_time
 
-        self.train_idx = self.feature_df.index < end_train_time
-        self.test_idx = self.feature_df.index > self.start_test_time
+        train_time_index = to_datetime(self.feature_df.index[self.train_idx])
+        try:
+            train_period = max(train_time_index) - min(train_time_index)
+        except ValueError as e:
+            raise NotEnoughDataException()
 
-        if self.test_idx.sum() == 0:
+        if self.test_idx.sum() == 0 or train_period < opt.min_train_period:
             raise NotEnoughDataException()
 
     def make_target(self, forward_hour: int) -> tuple[pd.Series, pd.Series]:
@@ -144,54 +152,53 @@ class ProductDataStore:
 
 
 class UniverseDataStore:
-    def __init__(self, df: pd.DataFrame, ema_options: FeatureOptions, resid_options: Optional[ResidOptions]):
+    def __init__(self, df_gen: PairDataGenerator,
+                 ema_options: FeatureOptions,
+                 ttopt: TrainTestOptions,
+                 resid_options: Optional[ResidOptions]):
 
         self.logger = logging.getLogger(__name__)
 
-        price_ts = ((df['Close'] + df['Open']) / 2.0).rename('price')
-
-        assert len(price_ts.index.names) == 2
-        pairs = price_ts.index.get_level_values('pair').unique()
-
         self.pds = {}
-        self.pairs = []
-
-        min_test_time = max(price_ts.index.get_level_values(1))
 
         mkt_features = []
-        for pair in resid_options.market_pairs:
-            assert pair in pairs
-            mkt_features.append(features_from_data(df.loc[pair], ema_options))
+
+        price_tss = {}
+
+        for pair, df in df_gen:
+
+            price_ts = ((df['Close'] + df['Open']) / 2.0).rename('price')
+            price_tss[pair] = price_ts
+
+            if pair in resid_options.market_pairs:
+                mkt_features.append(features_from_data(df, ema_options))
+
+            else:
+                try:
+                    ds = ProductDataStore(df, ema_options, ttopt)
+                except NotEnoughDataException as e:
+                    self.logger.warning(f'Not enough data for {pair=}. Skipping.')
+                    continue
+
+                self.pds[pair] = ds
 
         if mkt_features:
             self.mkt_features = pd.concat(mkt_features, axis=1)
         else:
             self.mkt_features = None
 
-        for pair in pairs:
-            if pair in resid_options.market_pairs:
-                continue
-            try:
-                ds = ProductDataStore(df.loc[pair], ema_options)
-                min_test_time = min(min_test_time, ds.start_test_time)
-            except NotEnoughDataException as e:
-                self.logger.warning(f'Not enough data for {pair=}. Skipping.')
-                continue
-
-            self.pairs.append(pair)
-            self.pds[pair] = ds
-
         self.bs = None
+        ts = pd.concat(price_tss.values(), keys=price_tss.keys(), names=['pair'])
         if resid_options:
-            self.bs = BetaStore(price_ts,
-                                min_test_time=min_test_time,
+            self.bs = BetaStore(ts,
+                                ttopt,
                                 hours_forward=resid_options.hours_forward)
 
     def prepare_data(self, fit_options: UniverseDataOptions) -> UniverseFitData:
         train_targets = {}
         test_targets = {}
 
-        pairs = self.pairs
+        pairs = list(self.pds.keys())
         for pair, ds in self.pds.items():
             train_targets[pair], test_targets[pair] = ds.make_target(forward_hour=fit_options.forward_hour)
 
@@ -227,7 +234,7 @@ class UniverseDataStore:
                                vol_rescalings=vol_rescalings)
 
     def prepare_data_global(self, ufd: UniverseFitData) -> FitData:
-        pairs = self.pairs
+        pairs = list(self.pds.keys())
 
         train_target = pd.concat((ufd.train_targets[pair] for pair in pairs), axis=0)
         test_target = pd.concat((ufd.test_targets[pair] for pair in pairs), axis=0)

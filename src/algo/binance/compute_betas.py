@@ -3,11 +3,12 @@ import numpy as np
 import sklearn
 from sklearn import decomposition
 import pandas as pd
-from algo.cpp.cseries import shift_forward, compute_ema
+from algo.cpp.cseries import shift_forward
+from algo.binance.utils import TrainTestOptions, to_datetime
 
 
 class BetaStore:
-    def __init__(self, price_ts: pd.Series, min_test_time: int, hours_forward: int):
+    def __init__(self, price_ts: pd.Series, tt_opt: TrainTestOptions, hours_forward: int):
         """ Index is (pair,time) """
 
         self.logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ class BetaStore:
         ret_df = ret_df.loc[idx].dropna(axis=1)
 
         pca = sklearn.decomposition.PCA(n_components=1)
-        fitdf = ret_df[ret_df.index < min_test_time]
+        fitdf = ret_df[to_datetime(ret_df.index) < tt_opt.train_end_time]
         pca.fit(fitdf)
 
         self.mkt_returns = pd.Series(pca.transform(ret_df)[:, 0], index=ret_df.index).rename('mkt_return')

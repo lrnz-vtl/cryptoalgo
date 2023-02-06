@@ -17,6 +17,7 @@ from algo.binance.evaluation import plot_eval
 from algo.binance.features import FeatureOptions, VolumeOptions
 from algo.binance.fit import UniverseDataOptions, ResidOptions, UniverseDataStore, ModelOptions, fit_eval_model, \
     fit_product, ProductFitData
+from algo.binance.utils import TrainTestOptions
 
 
 @dataclass
@@ -29,6 +30,7 @@ class ExpArgs:
     ro: ResidOptions
     ud_options: UniverseDataOptions
     spot: bool
+    tto: TrainTestOptions
 
 
 def fit_eval_products(product_data: dict[str, ProductFitData], opt: ModelOptions):
@@ -41,28 +43,27 @@ def fit_eval_products(product_data: dict[str, ProductFitData], opt: ModelOptions
 
 
 class Experiment:
+    # @profile
     def __init__(self, args: ExpArgs):
         self.args = args
 
         universe = Universe.make(args.n_coins, args.mcap_date)
 
-        time_col = 'Close time'
+        generator = load_universe_candles(universe, args.start_date, args.end_date, '5m', args.spot)
 
-        df = (
-            load_universe_candles(universe, args.start_date, args.end_date, '5m', args.spot)
-            .set_index(['pair', time_col])
-        )
-        self.uds = UniverseDataStore(df, args.feature_options, args.ro)
+        self.uds = UniverseDataStore(generator, args.feature_options, args.tto, args.ro)
 
         self.ufd = self.uds.prepare_data(args.ud_options)
         self.global_data = self.uds.prepare_data_global(self.ufd)
 
+    # @profile
     def fit_eval_alpha_global(self, global_opt: ModelOptions):
         global_fit_results = fit_eval_model(self.global_data, global_opt)
         score = r2_score(global_fit_results.test.ytrue, global_fit_results.test.ypred)
 
         return global_fit_results, score
 
+    # @profile
     def make_product_data(self, global_opt: ModelOptions) -> tuple[float, dict[str, ProductFitData]]:
         global_fit_results, score = self.fit_eval_alpha_global(global_opt)
 
@@ -105,16 +106,25 @@ class TestExperiment(unittest.TestCase):
                                          forward_hour=forward_hour,
                                          target_scaler=lambda: RobustScaler()
                                          )
+        start_date = datetime.datetime(year=2022, month=1, day=1)
+        end_date = datetime.datetime(year=2023, month=1, day=1)
+
+        tto = TrainTestOptions(
+            train_end_time=datetime.datetime(year=2022, month=8, day=1),
+            test_start_time=datetime.datetime(year=2022, month=8, day=3),
+            min_train_period=datetime.timedelta(days=30 * 6)
+        )
 
         exp_args = ExpArgs(
             mcap_date=datetime.date(year=2022, month=1, day=1),
-            n_coins=20,
-            start_date=datetime.datetime(year=2022, month=1, day=1),
-            end_date=datetime.datetime(year=2023, month=1, day=1),
+            n_coins=100,
+            start_date=start_date,
+            end_date=end_date,
             feature_options=feature_options,
             ro=ro,
             ud_options=ud_options,
-            spot=False
+            spot=False,
+            tto=tto
         )
 
         def transform_model_after_fit(lm):
