@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Callable, Optional, Any
+from typing import Callable, Optional, Any, Iterable
 import numpy as np
 import pandas as pd
 import scipy.stats.mstats
@@ -34,7 +34,7 @@ class FitResults:
 
 @dataclass
 class ModelOptions:
-    get_lm: Callable[[], LinearModel]
+    get_lm: Callable[[], Any]
     cap_oos_quantile: Optional[float]
     transform_fit_target: Optional[Callable] = None
     transform_model_after_fit: Optional[Callable] = None
@@ -42,7 +42,7 @@ class ModelOptions:
 
 @dataclass
 class ResidOptions:
-    market_pairs: set[str]
+    market_pairs: Iterable[str]
     hours_forward: int = 1
 
 

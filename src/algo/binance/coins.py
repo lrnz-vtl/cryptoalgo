@@ -12,6 +12,8 @@ from algo.binance.cached_api import symbol_to_ids, get_mcap, RateLimitException
 
 basep = Path('/home/lorenzo/data/data.binance.vision')
 
+spot_data_folder = basep / 'spot'
+
 exclude_symbols = {'busd',
                    'dai',
                    'tusd',
@@ -43,7 +45,7 @@ hardcoded_ids = {'gmx': 'gmx',
 
 
 def all_symbols():
-    for y in (basep / '1d').glob('*USDT'):
+    for y in (spot_data_folder / '1d').glob('*USDT'):
         symbol = y.name[:-4].lower()
         if symbol.endswith('down') or symbol.endswith('up') or symbol.endswith('bear') or symbol.endswith('bull'):
             continue
@@ -100,8 +102,8 @@ class TestSymbols(unittest.TestCase):
         top_mcap(date)
 
 
-def load_candles(pair_name: str, freq: str):
-    folder = basep / freq / pair_name / freq
+def load_candles(pair_name: str, subpath: str, freq: str):
+    folder = basep / subpath / freq / pair_name / freq
     pattern = rf'{pair_name}-{freq}-(\d\d\d\d)-(\d\d).zip'
     p = re.compile(pattern)
 
@@ -126,14 +128,29 @@ def load_candles(pair_name: str, freq: str):
 
         if p.match(filename):
             csv_filename = filename.replace('.zip', '.csv')
+            parquet_filename = filename.replace('.zip', '.parquet')
 
-            if not os.path.exists(folder / csv_filename):
+            if not os.path.exists(folder / csv_filename) and not os.path.exists(folder / parquet_filename):
                 with zipfile.ZipFile(folder / str(filename), 'r') as zip_ref:
                     zip_ref.extractall(folder)
 
-            subdf = pd.read_csv(folder / csv_filename, header=None)
-            subdf.columns = columns
+            if not os.path.exists(folder / parquet_filename):
+                subdf = pd.read_csv(folder / csv_filename)
+                subdf.columns = columns
+                subdf.to_parquet(folder / parquet_filename)
+
+            subdf = pd.read_parquet(folder / parquet_filename)
+
+            obj_cols = [col for col, dt in subdf.dtypes.items() if dt == object]
+            assert not obj_cols, filename
+
+            # test = subdf.dtypes
+            # assert pd.dtype('O') not in subdf.dtypes, f"{filename}"
+
             dfs.append(subdf)
+
+    if not dfs:
+        raise ValueError(f'No data found in {folder}')
 
     df = pd.concat(dfs)
     df['pair'] = pair_name
@@ -153,22 +170,30 @@ class Universe:
 def load_universe_candles(universe: Universe,
                           start_date: datetime.datetime,
                           end_date: datetime.datetime,
-                          freq: str):
+                          freq: str,
+                          spot: bool):
     logger = logging.getLogger(__name__)
 
     dfs = []
 
+    if spot:
+        subpath = 'spot'
+    else:
+        subpath = 'futures/um'
+
     for coin in universe.coins:
         pair_name = coin.upper() + 'USDT'
 
-        subdf = load_candles(pair_name, freq)
+        subdf = load_candles(pair_name, subpath, freq)
 
         num_nans = subdf.isna().any(axis=1)
         if num_nans.sum() > 0:
             logger.warning(f"Dropping {num_nans.sum() / subdf.shape[0]} percentage of rows with nans for {pair_name}")
-        subdf.dropna(inplace=True)
 
-        subdf.sort_values(by='Open time', inplace=True)
+        subdf = (
+            subdf.dropna().
+            sort_values(by='Open time', inplace=True)
+        )
 
         dfs.append(subdf)
 

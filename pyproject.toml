@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "cryptoalgo"
+name = "algo"
 version = "0.1.0"
 description = ""
 authors = ["ciubecca <lorenzovitale89@gmail.com>"]
@@ -10,12 +10,14 @@ python = "^3.11"
 numpy = "^1.24.2"
 scikit-learn = "^1.2.1"
 requests = "^2.28.2"
+pyarrow = "^11.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pybind11 = "^2.10.3"
 pandas = "^1.5.3"
 jupyter = "^1.0.0"
 matplotlib = "^3.6.3"
+memory-profiler = "^0.61.0"
 
 
 [build-system]

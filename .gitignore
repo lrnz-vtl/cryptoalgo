@@ -1,0 +1,9 @@
+__pycache__/
+.ipynb_checkpoints/
+algobot.pem
+*.parquet
+*.egg_info/
+reports/
+runs/
+*.swp
+.idea/
