@@ -10,7 +10,7 @@ from algo.stream.aggregators import aggregatePrice, AveragePrice
 from logging import Logger
 from asyncio.exceptions import TimeoutError
 from dataclasses import dataclass
-from definitions import ROOT_DIR
+from algo.definitions import ROOT_DIR
 
 default_sample_interval = 5
 default_log_interval = 5 * 60

@@ -14,7 +14,7 @@ import requests
 from dataclasses import dataclass
 import dataclasses
 from typing import Optional, Union
-from definitions import ROOT_DIR
+from algo.definitions import ROOT_DIR
 import numpy as np
 from tinyman.v1.pools import Pool
 import time

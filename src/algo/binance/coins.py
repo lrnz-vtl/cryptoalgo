@@ -6,7 +6,6 @@ import unittest
 import zipfile
 from pathlib import Path
 from typing import Generator
-import polars as pl
 
 import pandas as pd
 import datetime
@@ -202,7 +201,7 @@ def load_universe_candles(universe: Universe,
         subpath = 'futures/um'
 
     for coin in universe.coins:
-        if coin.upper() in spot_to_future_names:
+        if not spot and coin.upper() in spot_to_future_names:
             pair_fst = spot_to_future_names[coin.upper()]
         else:
             pair_fst = coin.upper()
@@ -221,8 +220,8 @@ def load_universe_candles(universe: Universe,
 
         yield pair_name, (
             subdf.dropna().
-            sort_values(by='Open time').
-            set_index('Close time')
+            set_index('Close time').
+            sort_index()
         )
 
 

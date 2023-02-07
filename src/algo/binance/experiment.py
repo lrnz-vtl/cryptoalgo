@@ -1,6 +1,6 @@
 import datetime
 import unittest
-from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Collection
 
 import numpy as np
@@ -10,18 +10,20 @@ from scipy.stats.mstats import winsorize
 from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
 from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import RobustScaler, StandardScaler
+from sklearn.preprocessing import StandardScaler
 
 from algo.binance.coins import Universe, load_universe_candles
-from algo.binance.evaluation import plot_eval
 from algo.binance.features import FeatureOptions, VolumeOptions
 from algo.binance.fit import UniverseDataOptions, ResidOptions, UniverseDataStore, ModelOptions, fit_eval_model, \
-    fit_product, ProductFitData
+    fit_product, ProductFitData, ProductFitResult
+from algo.binance.model import ProductModel
 from algo.binance.utils import TrainTestOptions
+from pydantic import BaseModel
+
+from algo.definitions import ROOT_DIR
 
 
-@dataclass
-class ExpArgs:
+class ExpArgs(BaseModel):
     mcap_date: datetime.date
     n_coins: int
     start_date: datetime.datetime
@@ -33,10 +35,10 @@ class ExpArgs:
     tto: TrainTestOptions
 
 
-def fit_eval_products(product_data: dict[str, ProductFitData], opt: ModelOptions):
+def fit_eval_products(product_data: dict[str, ProductFitData], opt: ModelOptions) -> tuple[dict[str, ProductFitResult], float]:
     ress = {pair: fit_product(x, opt) for pair, x in product_data.items()}
 
-    totdf = pd.concat((pd.concat([x.test.ytrue, x.test.ypred], axis=1) for pair, x in ress.items()), axis=0)
+    totdf = pd.concat((pd.concat([x.res.test.ytrue, x.res.test.ypred], axis=1) for pair, x in ress.items()), axis=0)
     score = r2_score(totdf.ytrue, totdf.ypred)
 
     return ress, score
@@ -45,6 +47,7 @@ def fit_eval_products(product_data: dict[str, ProductFitData], opt: ModelOptions
 class Experiment:
     # @profile
     def __init__(self, args: ExpArgs):
+        self.global_fit_results = None
         self.args = args
 
         universe = Universe.make(args.n_coins, args.mcap_date)
@@ -65,9 +68,9 @@ class Experiment:
 
     # @profile
     def make_product_data(self, global_opt: ModelOptions) -> tuple[float, dict[str, ProductFitData]]:
-        global_fit_results, score = self.fit_eval_alpha_global(global_opt)
+        self.global_fit_results, score = self.fit_eval_alpha_global(global_opt)
 
-        product_data = {pair: x for pair, x in self.uds.gen_product_data(self.ufd, global_fit_results)}
+        product_data = {pair: x for pair, x in self.uds.gen_product_data(self.ufd, self.global_fit_results)}
         return score, product_data
 
 
@@ -95,29 +98,31 @@ class Validator:
 
 
 class TestExperiment(unittest.TestCase):
-    def test_a(self):
+    def __init__(self, *args, **kwargs):
+        n_coins = 10
         vol = VolumeOptions(include_imbalance=True, include_logretvol=True)
-        feature_options = FeatureOptions([4, 12, 24, 48, 96], vol)
+
+        feature_options = FeatureOptions(decay_hours=[4, 12, 24, 48, 96], volume_options=vol)
         ro = ResidOptions(market_pairs=['BTCUSDT', 'ETHUSDT'])
 
         forward_hour = 24
 
         ud_options = UniverseDataOptions(demean=True,
                                          forward_hour=forward_hour,
-                                         target_scaler=lambda: RobustScaler()
+                                         vol_scaling=True
                                          )
         start_date = datetime.datetime(year=2022, month=1, day=1)
-        end_date = datetime.datetime(year=2023, month=1, day=1)
+        end_date = datetime.datetime(year=2023, month=6, day=1)
 
         tto = TrainTestOptions(
-            train_end_time=datetime.datetime(year=2022, month=8, day=1),
-            test_start_time=datetime.datetime(year=2022, month=8, day=3),
-            min_train_period=datetime.timedelta(days=30 * 6)
+            train_end_time=datetime.datetime(year=2022, month=4, day=1),
+            test_start_time=datetime.datetime(year=2022, month=4, day=3),
+            min_train_period=datetime.timedelta(days=30 * 2)
         )
 
-        exp_args = ExpArgs(
+        self.exp_args = ExpArgs(
             mcap_date=datetime.date(year=2022, month=1, day=1),
-            n_coins=100,
+            n_coins=n_coins,
             start_date=start_date,
             end_date=end_date,
             feature_options=feature_options,
@@ -126,7 +131,9 @@ class TestExperiment(unittest.TestCase):
             spot=False,
             tto=tto
         )
+        super().__init__(*args, **kwargs)
 
+    def test_a(self):
         def transform_model_after_fit(lm):
             assert hasattr(lm['ridge'], 'intercept_')
             lm['ridge'].intercept_ = 0
@@ -139,7 +146,7 @@ class TestExperiment(unittest.TestCase):
             cap_oos_quantile=None
         )
 
-        exp = Experiment(exp_args)
+        exp = Experiment(self.exp_args)
 
         score, product_data = exp.make_product_data(global_opt)
         print(f'global {score=}')
@@ -161,8 +168,6 @@ class TestExperiment(unittest.TestCase):
 
         plt.plot(np.log(list(val.scores.keys())), list(val.scores.values()))
         plt.grid()
-        plt.show()
-        plt.clf()
 
         best_alpha, best_score = val.current_max()
 
@@ -177,4 +182,32 @@ class TestExperiment(unittest.TestCase):
 
         print(f'{score=}')
 
-        # plot_eval(ress);
+        for pair, res in ress.items():
+            Xtest = product_data[pair].data.features_test
+            model = ProductModel.from_fit_results(res, exp.global_fit_results,
+                                                  column_names=product_data[pair].data.features_test.columns)
+            ytest = model.predict(Xtest)
+
+            assert len(Xtest.columns) == len(set(Xtest.columns))
+
+            np.testing.assert_allclose(ytest, res.res.test.ypred)
+
+    def test_b(self):
+        x1 = self.exp_args.json()
+
+        filename = Path(ROOT_DIR) / 'test.txt'
+
+        # with tempfile.TemporaryFile('w') as fp:
+        with open(filename, 'w') as fp:
+            fp.write(x1)
+
+        with open(filename) as fp:
+            x2 = fp.read()
+            print(x2)
+            assert x1 == x2
+
+            exp_args2 = ExpArgs.parse_raw(x2)
+            print(exp_args2)
+
+        exp_args3 = ExpArgs.parse_file(filename)
+        assert exp_args3 == self.exp_args

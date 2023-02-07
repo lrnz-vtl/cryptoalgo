@@ -1,6 +1,6 @@
 import os
 import unittest
-from definitions import ROOT_DIR
+from algo.definitions import ROOT_DIR
 from tinyman.v1.client import TinymanClient, TinymanMainnetClient
 from tinyman.v1.pools import Asset
 from dataclasses import asdict

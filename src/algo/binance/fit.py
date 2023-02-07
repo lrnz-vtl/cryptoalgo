@@ -1,11 +1,11 @@
 import logging
 from dataclasses import dataclass
-from typing import Callable, Optional, Any, Iterable
+from typing import Callable, Optional, Any
 import numpy as np
 import pandas as pd
 import scipy.stats.mstats
 from algo.cpp.cseries import shift_forward
-from sklearn.linear_model._base import LinearModel
+from sklearn.preprocessing import RobustScaler
 
 from algo.binance.coins import PairDataGenerator
 from algo.binance.compute_betas import BetaStore
@@ -32,7 +32,7 @@ class TrainTestData:
 class FitResults:
     train: TrainTestData
     test: TrainTestData
-    fitted_model: LinearModel
+    fitted_model: Any
 
 
 @dataclass
@@ -45,7 +45,7 @@ class ModelOptions:
 
 @dataclass
 class ResidOptions:
-    market_pairs: Iterable[str]
+    market_pairs: list[str]
     hours_forward: int = 1
 
 
@@ -53,7 +53,7 @@ class ResidOptions:
 class UniverseDataOptions:
     demean: bool
     forward_hour: int
-    target_scaler: Optional[Callable[[], Any]]
+    vol_scaling: bool
 
 
 @dataclass
@@ -84,6 +84,7 @@ class UniverseFitData:
     train_targets: dict[str, pd.Series]
     test_targets: dict[str, pd.Series]
     vol_rescalings: Optional[dict[str, float]]
+    betas: Optional[dict[str, float]]
 
 
 @dataclass
@@ -94,10 +95,15 @@ class UniverseFitResults:
     res_global: Optional[FitResults]
 
 
+@dataclass
+class ProductFitResult:
+    res: FitResults
+    rescaling: float
+    caps: Optional[tuple[float, float]]
 
 
 def fit_eval_model(data: FitData,
-                   opt: ModelOptions):
+                   opt: ModelOptions) -> FitResults:
     lm = opt.get_lm()
 
     if opt.transform_fit_target:
@@ -165,13 +171,19 @@ class UniverseDataStore:
 
         price_tss = {}
 
+        remaining_market_pairs = set(resid_options.market_pairs)
+
         for pair, df in df_gen:
 
             price_ts = ((df['Close'] + df['Open']) / 2.0).rename('price')
             price_tss[pair] = price_ts
 
-            if pair in resid_options.market_pairs:
-                mkt_features.append(features_from_data(df, ema_options))
+            if pair in remaining_market_pairs:
+                new_mkt_features = features_from_data(df, ema_options)
+                new_mkt_features.columns = [f'{pair}_{col}' for col in new_mkt_features.columns]
+
+                mkt_features.append(new_mkt_features)
+                remaining_market_pairs.remove(pair)
 
             else:
                 try:
@@ -188,11 +200,13 @@ class UniverseDataStore:
             self.mkt_features = None
 
         self.bs = None
-        ts = pd.concat(price_tss.values(), keys=price_tss.keys(), names=['pair'])
         if resid_options:
+            ts = pd.concat(price_tss.values(), keys=price_tss.keys(), names=['pair'])
             self.bs = BetaStore(ts,
                                 ttopt,
                                 hours_forward=resid_options.hours_forward)
+
+        assert len(remaining_market_pairs) == 0
 
     def prepare_data(self, fit_options: UniverseDataOptions) -> UniverseFitData:
         train_targets = {}
@@ -202,9 +216,12 @@ class UniverseDataStore:
         for pair, ds in self.pds.items():
             train_targets[pair], test_targets[pair] = ds.make_target(forward_hour=fit_options.forward_hour)
 
+        betas = None
         if self.bs:
+            betas = {}
             for pair in pairs:
                 beta = self.bs.compute_beta(train_targets[pair])
+                betas[pair] = beta
                 train_targets[pair] = self.bs.residualise(beta, train_targets[pair])
                 test_targets[pair] = self.bs.residualise(beta, test_targets[pair])
 
@@ -219,11 +236,11 @@ class UniverseDataStore:
             del train_ret_df
             del test_ret_df
 
-        if fit_options.target_scaler is not None:
+        if fit_options.vol_scaling is not None:
             vol_rescalings = {}
             for pair in pairs:
                 vol_rescalings[pair] = \
-                    fit_options.target_scaler().fit(train_targets[pair].values.reshape(-1, 1)).scale_[0]
+                    RobustScaler().fit(train_targets[pair].values.reshape(-1, 1)).scale_[0]
                 train_targets[pair] /= vol_rescalings[pair]
                 test_targets[pair] /= vol_rescalings[pair]
         else:
@@ -231,7 +248,8 @@ class UniverseDataStore:
 
         return UniverseFitData(train_targets=train_targets,
                                test_targets=test_targets,
-                               vol_rescalings=vol_rescalings)
+                               vol_rescalings=vol_rescalings,
+                               betas=betas)
 
     def prepare_data_global(self, ufd: UniverseFitData) -> FitData:
         pairs = list(self.pds.keys())
@@ -299,7 +317,7 @@ class UniverseDataStore:
                                            global_pred_targets=None)
 
 
-def fit_product(pfd: ProductFitData, model_options: ModelOptions):
+def fit_product(pfd: ProductFitData, model_options: ModelOptions) -> ProductFitResult:
     res = fit_eval_model(pfd.data,
                          model_options)
 
@@ -310,19 +328,24 @@ def fit_product(pfd: ProductFitData, model_options: ModelOptions):
         res.test.ypred = res.test.ypred + pfd.global_pred_targets.global_pred_test
         res.test.ytrue = pfd.global_pred_targets.orig_target_test.rename('ytrue')
 
+    caps = None
+
     # double-check the train prediction is demeaned
     if model_options.cap_oos_quantile is not None:
         wins = scipy.stats.mstats.winsorize(res.train.ypred, model_options.cap_oos_quantile)
         lo = wins.min()
         hi = wins.max()
+        caps = (lo, hi)
         res.test.ypred[res.test.ypred < lo] = lo
         res.test.ypred[res.test.ypred > hi] = hi
 
+    rescaling = 1.0
     if pfd.vol_rescaling is not None:
+        rescaling = pfd.vol_rescaling
         res.test.ypred *= pfd.vol_rescaling
         res.test.ytrue *= pfd.vol_rescaling
 
     assert (res.train.ypred.index == res.train.ytrue.index).all()
     assert (res.test.ypred.index == res.test.ytrue.index).all()
 
-    return res
+    return ProductFitResult(res, rescaling, caps)

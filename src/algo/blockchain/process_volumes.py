@@ -5,7 +5,7 @@ from algo.blockchain.algo_requests import query_transactions, QueryParams
 from tinyman.v1.client import TinymanClient
 from algo.blockchain.base import DataScraper, NotExistentPoolError
 from algo.blockchain.cache import DataCacher
-from definitions import ROOT_DIR
+from algo.definitions import ROOT_DIR
 import datetime
 from algo.universe.pools import PoolIdStore
 import aiohttp

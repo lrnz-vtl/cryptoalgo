@@ -2,12 +2,12 @@ from __future__ import annotations
 import requests
 from dataclasses import dataclass
 from algo.blockchain.algo_requests import query_transactions
-from base64 import b64decode, b64encode
+from base64 import b64encode
 import warnings
 import time
 from algo.blockchain.base import DataScraper, NotExistentPoolError
 from algo.blockchain.cache import DataCacher
-from definitions import ROOT_DIR
+from algo.definitions import ROOT_DIR
 import logging
 import aiohttp
 from algo.blockchain.algo_requests import QueryParams

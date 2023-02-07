@@ -7,7 +7,7 @@ from algo.universe.pools import PoolInfo, PoolInfoStore, PoolId, load_pool_info,
 import json
 import dataclasses
 
-from definitions import ROOT_DIR
+from algo.definitions import ROOT_DIR
 
 UNIVERSE_CACHE_BASEDIR = os.path.join(ROOT_DIR, 'caches', 'universe')
 SIMPLEUNIVERSE_CACHE_BASEDIR = os.path.join(ROOT_DIR, 'caches', 'simple_universe')

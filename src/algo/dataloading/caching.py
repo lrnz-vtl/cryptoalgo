@@ -5,7 +5,7 @@ import pandas as pd
 from pathlib import Path
 
 from algo.universe.universe import SimpleUniverse
-from definitions import ROOT_DIR
+from algo.definitions import ROOT_DIR
 from typing import Optional, Callable
 from algo.blockchain.cache import DateValidator
 

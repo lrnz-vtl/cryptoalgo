@@ -3,9 +3,7 @@ from matplotlib import pyplot as plt
 from algo.binance.fit import FitResults
 
 
-def plot_row(xxsum, xysum, x, y, title: str):
-    f, axs = plt.subplots(1, 2, figsize=(20, 5));
-
+def plot_row(xxsum, xysum, x, y, axs):#, title: str):
     axs[0].plot(pd.to_datetime(xxsum.index, unit='ms'), xxsum, label='xxsum');
     axs[0].plot(pd.to_datetime(xysum.index, unit='ms'), xysum, label='xysum');
 
@@ -18,10 +16,9 @@ def plot_row(xxsum, xysum, x, y, title: str):
     axs[1].legend();
     axs[1].grid();
 
-    f.tight_layout();
-    f.suptitle(title);
-    plt.show();
-    plt.clf();
+    # f.suptitle(title);
+    # plt.show();
+    # plt.clf();
 
 
 def sum_series(a: pd.Series, b: pd.Series) -> pd.Series:
@@ -38,7 +35,7 @@ def plot_eval(ress: dict[str, FitResults]):
     xxsums = {}
     xysums = {}
 
-    for pair, res in ress.items():
+    for (pair, res) in ress.items():
         xxsums[pair] = (res.test.ypred * res.test.ypred).cumsum()
         xysums[pair] = (res.test.ypred * res.test.ytrue).cumsum()
 
@@ -56,7 +53,22 @@ def plot_eval(ress: dict[str, FitResults]):
             x_tot = sum_series(x_tot, res.test.ypred)
             y_tot = sum_series(y_tot, res.test.ytrue)
 
-    plot_row(xxsum_tot, xysum_tot, x_tot, y_tot, 'total');
+    # f, axss = plt.subplots(n_pairs, 2, figsize=(20, 5 * n_pairs));
 
-    for pair, res in ress.items():
-        plot_row(xxsums[pair], xysums[pair], res.test.ypred, res.test.ytrue, pair);
+    n_pairs = len(ress)
+    n_rows = n_pairs+1
+    fig = plt.figure(figsize=(20, 5 * n_rows))
+    subfigs = fig.subfigures(nrows=n_rows, ncols=1)
+
+    subfig = subfigs[0]
+    axs = subfig.subplots(nrows=1, ncols=2)
+    subfig.suptitle(f'total')
+    plot_row(xxsum_tot, xysum_tot, x_tot, y_tot, axs);
+
+    for i, (pair, res) in enumerate(ress.items()):
+        subfig = subfigs[i+1]
+        axs = subfig.subplots(nrows=1, ncols=2)
+        subfig.suptitle(pair)
+        plot_row(xxsums[pair], xysums[pair], res.test.ypred, res.test.ytrue, axs);
+
+    # f.tight_layout();

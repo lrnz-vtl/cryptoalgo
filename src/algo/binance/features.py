@@ -3,6 +3,7 @@ from typing import Optional
 import numpy as np
 from algo.cpp.cseries import shift_forward, compute_ema, compute_expsum
 import pandas as pd
+from pydantic import BaseModel
 
 ms_in_hour = (10 ** 3) * 60 * 60
 
@@ -13,8 +14,7 @@ class VolumeOptions:
     include_imbalance: bool
 
 
-@dataclass
-class FeatureOptions:
+class FeatureOptions(BaseModel):
     decay_hours: list[int]
     volume_options: Optional[VolumeOptions]
     include_current: bool = True
