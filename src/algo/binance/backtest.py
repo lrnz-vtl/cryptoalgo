@@ -1,16 +1,11 @@
-import argparse
 import datetime
 import logging
-import os
-# import profile
-import unittest
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
+import scipy
 from pydantic import BaseModel
 
 from algo.binance.coins import load_universe_candles
@@ -46,7 +41,7 @@ class Optimiser:
         self.n = len(betas)
         n = self.n
         self.comms = self.cfg.comm * np.ones(n)
-        self.risk = self.cfg.risk_coef * np.identity(n)
+        self.risk = self.cfg.risk_coef * scipy.sparse.eye(n)
         self.poslims = self.cfg.poslim * np.ones(n)
         self.ones = np.ones(n)
         self.zeros = np.zeros(n)
@@ -78,7 +73,8 @@ class Optimiser:
             cp.Minimize((1 / 2) * cp.quad_form(position + xb - xs, self.risk) - signal.T @ (xb - xs) +
                         self.comms @ xb + self.comms @ xs), cons
         )
-        prob.solve()
+        # NOTE Can port this to rust
+        prob.solve(solver='OSQP')
         return xb.value - xs.value
 
 
@@ -95,6 +91,7 @@ class TradeAcct:
         self.pnl = np.zeros((nsteps, n_pairs))
 
         self.mkt_exposure = np.zeros(nsteps)
+        self.cash_exposure = np.zeros(nsteps)
 
         self.mask = np.full(n_pairs, True)
         self.i = 0
@@ -132,6 +129,8 @@ class TradeAcct:
 
         self.mkt_exposure[i] = self.betas[mask] @ (self.qtys[i][mask] * prices)
 
+        self.cash_exposure[i] = (self.qtys[i][mask] * prices).sum()
+
 
 class SimulatorCfg(BaseModel):
     exp_name: str
@@ -140,6 +139,8 @@ class SimulatorCfg(BaseModel):
     cash_flat: bool
     mkt_flat: bool
     trade_pair_limit: Optional[int]
+    # Half life in units of 5 minutes
+    ema_hf_periods: Optional[float] = None
 
 
 @dataclass
@@ -260,6 +261,8 @@ class Simulator:
                                                        )
                                          for coef in risk_coefs}
 
+        signals = np.zeros(len(self.pairs))
+
         for i in range(1, self.nsteps):
 
             for coef in risk_coefs:
@@ -272,8 +275,15 @@ class Simulator:
                     for coef in risk_coefs:
                         accts[coef].remove_pair(j)
 
+            raw_signals = self.signals_matrix[i]
+            if self.cfg.ema_hf_periods:
+                alpha = np.exp(-1.0/self.cfg.ema_hf_periods)
+                signals = alpha*signals + (1-alpha)*raw_signals
+            else:
+                signals = raw_signals
+
             for coef in risk_coefs:
-                accts[coef].trade(self.signals_matrix[i], self.exec_prices_matrix[i])
+                accts[coef].trade(signals, self.exec_prices_matrix[i])
 
         return SimResults(accts=accts,
                           signals_matrix=self.signals_matrix,
@@ -281,95 +291,3 @@ class Simulator:
                           times=self.times,
                           prices=self.exec_prices_matrix
                           )
-
-
-def plot_pair_results(times: np.array,
-                      qtys: dict[float, np.array],
-                      pnl: dict[float, np.array],
-                      signals: np.array,
-                      prices: np.array,
-                      pair_name: str,
-                      dst_path: Optional[Path]):
-    cols = 4
-
-    f, axs = plt.subplots(1, cols, figsize=(5 * cols, 5))
-
-    for coef in qtys.keys():
-        axs[0].plot(times, qtys[coef], label=coef)
-        axs[1].plot(times, pnl[coef], label=coef)
-    axs[2].plot(times, signals)
-    axs[3].plot(times, prices)
-
-    axs[0].tick_params(labelrotation=35)
-    axs[0].grid()
-    axs[0].set_title('position')
-    axs[0].legend()
-
-    axs[1].tick_params(labelrotation=35)
-    axs[1].grid()
-    axs[1].set_title('pnl')
-    axs[1].legend()
-
-    axs[2].tick_params(labelrotation=35)
-    axs[2].grid()
-    axs[2].set_title('signal')
-
-    axs[3].tick_params(labelrotation=35)
-    axs[3].grid()
-    axs[3].set_title('price')
-
-    f.suptitle(pair_name)
-    f.tight_layout()
-
-    if dst_path is not None:
-        plt.savefig(dst_path/f'{pair_name}.png')
-    else:
-        plt.show()
-
-
-def plot_results(x: SimResults, dst_path: Optional[Path]):
-    times = to_datetime(x.times)
-
-    plot_pair_results(times=times,
-                      qtys={coef: x.qtys.sum(axis=1) for coef, x in x.accts.items()},
-                      pnl={coef: x.pnl.sum(axis=1) for coef, x in x.accts.items()},
-                      signals=x.signals_matrix.sum(axis=1),
-                      prices=x.prices.sum(axis=1),
-                      pair_name='total',
-                      dst_path=dst_path
-                      )
-
-    for j, pair in enumerate(x.pairs):
-        plot_pair_results(times=times,
-                          qtys={coef: x.qtys[:, j] for coef, x in x.accts.items()},
-                          pnl={coef: x.pnl[:, j] for coef, x in x.accts.items()},
-                          signals=x.signals_matrix[:, j],
-                          prices=x.prices[:, j],
-                          pair_name=pair,
-                          dst_path=dst_path
-                          )
-
-
-class TestBack(unittest.TestCase):
-    def __init__(self, *args, **kwargs):
-        self.logger = logging.getLogger(__name__)
-
-        super().__init__(*args, **kwargs)
-
-    def test_run(self):
-        cfg = SimulatorCfg(exp_name='spot_slow',
-                           end_time=datetime.datetime(year=2022, month=9, day=1),
-                           trade_pair_limit=2,
-                           risk_coefs=[0.001],
-                           cash_flat=False,
-                           mkt_flat=True
-                           )
-        self.sim = Simulator(cfg)
-
-        res = self.sim.run()
-        plot_results(res, None)
-
-    def test_b(self):
-        fname = '/home/lorenzo/algo/sims/spot_slow_test/results.pkl'
-        x: SimResults = pd.read_pickle(fname)
-        plot_results(x, None)

@@ -2,13 +2,16 @@ import datetime
 import logging
 import unittest
 
+import pandas as pd
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import RobustScaler
 
+from algo.binance.backtest import SimulatorCfg, Simulator, SimResults
 from algo.binance.features import FeatureOptions, VolumeOptions
 from algo.binance.fit import fit_eval_model, UniverseDataOptions, fit_product
 from algo.binance.coins import Universe, load_universe_candles, all_symbols, top_mcap, symbol_to_ids
 from algo.binance.fit import UniverseDataStore, ModelOptions, ResidOptions
+from algo.binance.sim_reports import plot_results
 
 
 class TestUniverseDataStore(unittest.TestCase):
@@ -105,6 +108,32 @@ class TestSymbols(unittest.TestCase):
 
     def test_b(self):
         top_mcap(datetime.date(year=2022, month=1, day=1), dry_run=True)
+
+
+class TestBack(unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        self.logger = logging.getLogger(__name__)
+
+        super().__init__(*args, **kwargs)
+
+    def test_run(self):
+        cfg = SimulatorCfg(exp_name='spot_slow',
+                           end_time=datetime.datetime(year=2022, month=9, day=1),
+                           trade_pair_limit=2,
+                           risk_coefs=[0.001],
+                           cash_flat=False,
+                           mkt_flat=True,
+                           ema_hf_periods=5,
+                           )
+        self.sim = Simulator(cfg)
+
+        res = self.sim.run()
+        plot_results(res, None)
+
+    def test_b(self):
+        fname = '/home/lorenzo/algo/sims/spot_slow_flat/results.pkl'
+        x: SimResults = pd.read_pickle(fname)
+        plot_results(x, None, coefs_list=[0.01])
 
 
 if __name__ == '__main__':
