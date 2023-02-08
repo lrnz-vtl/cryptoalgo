@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 import pandas as pd
 from matplotlib import pyplot as plt
 from algo.binance.fit import FitResults
@@ -25,7 +28,7 @@ def sum_series(a: pd.Series, b: pd.Series) -> pd.Series:
     return a.add(b, fill_value=0)
 
 
-def plot_eval(ress: dict[str, FitResults]):
+def plot_eval(ress: dict[str, FitResults], dst_path: Path):
     x_tot = pd.Series(dtype=float)
     y_tot = pd.Series(dtype=float)
 
@@ -53,22 +56,31 @@ def plot_eval(ress: dict[str, FitResults]):
             x_tot = sum_series(x_tot, res.test.ypred)
             y_tot = sum_series(y_tot, res.test.ytrue)
 
-    # f, axss = plt.subplots(n_pairs, 2, figsize=(20, 5 * n_pairs));
+    # n_pairs = len(ress)
+    # n_rows = n_pairs+1
+    # fig = plt.figure(figsize=(20, 5 * n_rows))
+    # subfigs = fig.subfigures(nrows=n_rows, ncols=1)
+    #
+    # subfig = subfigs[0]
+    # axs = subfig.subplots(nrows=1, ncols=2)
+    # subfig.suptitle(f'total')
 
-    n_pairs = len(ress)
-    n_rows = n_pairs+1
-    fig = plt.figure(figsize=(20, 5 * n_rows))
-    subfigs = fig.subfigures(nrows=n_rows, ncols=1)
+    os.makedirs(dst_path, exist_ok=True)
 
-    subfig = subfigs[0]
-    axs = subfig.subplots(nrows=1, ncols=2)
-    subfig.suptitle(f'total')
+    f, axs = plt.subplots(1, 2, figsize=(20, 5));
+    f.suptitle(f'total')
     plot_row(xxsum_tot, xysum_tot, x_tot, y_tot, axs);
+    plt.savefig(dst_path / 'global.png')
+    plt.close()
 
     for i, (pair, res) in enumerate(ress.items()):
-        subfig = subfigs[i+1]
-        axs = subfig.subplots(nrows=1, ncols=2)
-        subfig.suptitle(pair)
+        # subfig = subfigs[i+1]
+        # axs = subfig.subplots(nrows=1, ncols=2)
+        # subfig.suptitle(pair)
+        f, axs = plt.subplots(1, 2, figsize=(20, 5));
+        f.suptitle(f'{pair}')
         plot_row(xxsums[pair], xysums[pair], res.test.ypred, res.test.ytrue, axs);
+        plt.savefig(dst_path / f'{pair}.png')
+        plt.close()
 
     # f.tight_layout();

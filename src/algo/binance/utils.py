@@ -1,11 +1,18 @@
 import datetime
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 import pandas as pd
 
 
 def to_datetime(x: pd.Series) -> pd.Series:
     return pd.to_datetime(x, unit='ms')
+
+
+def read_json(p: Path):
+    with open(p) as f:
+        return json.load(f)
 
 
 @dataclass

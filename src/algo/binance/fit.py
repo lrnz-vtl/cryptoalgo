@@ -174,6 +174,8 @@ class UniverseDataStore:
         remaining_market_pairs = set(resid_options.market_pairs)
 
         for pair, df in df_gen:
+            if df is None:
+                continue
 
             price_ts = ((df['Close'] + df['Open']) / 2.0).rename('price')
             price_tss[pair] = price_ts
@@ -254,7 +256,10 @@ class UniverseDataStore:
     def prepare_data_global(self, ufd: UniverseFitData) -> FitData:
         pairs = list(self.pds.keys())
 
-        train_target = pd.concat((ufd.train_targets[pair] for pair in pairs), axis=0)
+        try:
+            train_target = pd.concat((ufd.train_targets[pair] for pair in pairs), axis=0)
+        except ValueError as e:
+            raise e
         test_target = pd.concat((ufd.test_targets[pair] for pair in pairs), axis=0)
 
         features_train = pd.concat((self.pds[pair].feature_df[self.pds[pair].train_idx] for pair in pairs),

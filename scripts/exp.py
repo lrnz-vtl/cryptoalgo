@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import os
+import unittest
 from pathlib import Path
 
 import numpy as np
@@ -14,30 +15,15 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from algo.binance.evaluation import plot_eval
-from algo.binance.experiment import ExpArgs, Experiment, fit_eval_products, Validator
+from algo.binance.experiment import ExpArgs, Experiment, fit_eval_products, Validator, EXP_BASEP
 from algo.binance.features import VolumeOptions, FeatureOptions
 from algo.binance.fit import ResidOptions, UniverseDataOptions, ModelOptions
 from algo.binance.model import ProductModel
 from algo.binance.utils import TrainTestOptions
-from algo.definitions import ROOT_DIR
 
-EXP_BASEP = Path(ROOT_DIR) / 'experiments'
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument('name')
-    parser.add_argument('-n', type=int, required=True)
-    parser.add_argument('--spot', action='store_true')
-    parser.add_argument('--test', action='store_true')
-
-    args = parser.parse_args()
-
+def run(n_coins, spot, name, test):
     format = '[%(asctime)s] {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s'
-
-    n_coins = args.n
-    spot = args.spot
-    name = args.name
 
     dst_path = EXP_BASEP / name
     os.makedirs(dst_path, exist_ok=True)
@@ -55,16 +41,16 @@ if __name__ == '__main__':
     logging.getLogger('').addHandler(console)
     logger = logging.getLogger(__name__)
 
-    if args.test:
+    if test:
         vol = VolumeOptions(include_imbalance=False, include_logretvol=False)
 
         start_date = datetime.datetime(year=2022, month=1, day=1)
-        end_date = datetime.datetime(year=2022, month=6, day=1)
+        end_date = datetime.datetime(year=2022, month=7, day=1)
 
         tto = TrainTestOptions(
-            train_end_time=datetime.datetime(year=2022, month=4, day=1),
-            test_start_time=datetime.datetime(year=2022, month=4, day=3),
-            min_train_period=datetime.timedelta(days=3 * 6)
+            train_end_time=datetime.datetime(year=2022, month=5, day=1),
+            test_start_time=datetime.datetime(year=2022, month=5, day=3),
+            min_train_period=datetime.timedelta(days=30 * 3)
         )
 
     else:
@@ -79,7 +65,8 @@ if __name__ == '__main__':
             min_train_period=datetime.timedelta(days=30 * 6)
         )
 
-    feature_options = FeatureOptions(decay_hours=[4, 12, 24, 48, 96], volume_options=vol)
+    # feature_options = FeatureOptions(decay_hours=[4, 12, 24, 48, 96], volume_options=vol)
+    feature_options = FeatureOptions(decay_hours=[1/6, 4, 12, 24, 48, 96], volume_options=vol, include_current=False)
     ro = ResidOptions(market_pairs=['BTCUSDT', 'ETHUSDT'])
 
     forward_hour = 24
@@ -105,12 +92,10 @@ if __name__ == '__main__':
 
     exp = Experiment(exp_args)
 
-
     def transform_model_after_fit(lm):
         assert hasattr(lm['ridge'], 'intercept_')
         lm['ridge'].intercept_ = 0
         return lm
-
 
     global_opt = ModelOptions(
         get_lm=lambda: make_pipeline(StandardScaler(), Ridge(alpha=0)),
@@ -122,7 +107,6 @@ if __name__ == '__main__':
     score, product_data = exp.make_product_data(global_opt)
     logger.info(f'global {score=}')
 
-
     def validate(alpha: float):
         opt = ModelOptions(
             get_lm=lambda: make_pipeline(StandardScaler(), Ridge(alpha=alpha)),
@@ -132,7 +116,6 @@ if __name__ == '__main__':
         )
         _, score = fit_eval_products(product_data, opt)
         return score
-
 
     val = Validator(validate)
 
@@ -160,7 +143,7 @@ if __name__ == '__main__':
     for pair, res in ress.items():
         Xtest = product_data[pair].data.features_test
         models[pair] = ProductModel.from_fit_results(res, exp.global_fit_results,
-                                                     column_names=product_data[pair].data.features_test.columns)
+                                                     column_names=Xtest.columns)
     pd.to_pickle(models, dst_path / 'models.pkl')
 
     if exp.ufd.betas is not None:
@@ -168,5 +151,27 @@ if __name__ == '__main__':
         with open(dst_path / 'betas.json', 'w') as f:
             f.write(r)
 
-    plot_eval({k: v.res for k, v in ress.items()})
-    plt.savefig(dst_path / 'evaluations.png')
+    pd.to_pickle(ress, dst_path / 'results.pkl')
+
+    plot_eval({k: v.res for k, v in ress.items()}, dst_path / 'plots')
+    # plt.savefig(dst_path / 'evaluations.png')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('name')
+    parser.add_argument('-n', type=int, required=True)
+    parser.add_argument('--spot', action='store_true')
+    parser.add_argument('--test', action='store_true')
+
+    args = parser.parse_args()
+    n_coins = args.n
+    spot = args.spot
+    name = args.name
+    run(n_coins, spot, name, args.test)
+
+
+class TestExp(unittest.TestCase):
+    def test_a(self):
+        run(10, False, 'test', True)

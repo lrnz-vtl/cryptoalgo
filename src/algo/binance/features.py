@@ -15,7 +15,7 @@ class VolumeOptions:
 
 
 class FeatureOptions(BaseModel):
-    decay_hours: list[int]
+    decay_hours: list[float]
     volume_options: Optional[VolumeOptions]
     include_current: bool = True
 

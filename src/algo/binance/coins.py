@@ -5,7 +5,7 @@ import time
 import unittest
 import zipfile
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Union, Optional
 
 import pandas as pd
 import datetime
@@ -184,15 +184,14 @@ class Universe:
         return cls(top_mcap(mcap_date)[:n_top_coins])
 
 
-PairDataGenerator = Generator[tuple[str, pd.DataFrame], None, None]
+PairDataGenerator = Generator[tuple[str, Optional[pd.DataFrame]], None, None]
 
 
-def load_universe_candles(universe: Universe,
+def load_universe_candles(universe: Union[Universe, list[str]],
                           start_date: datetime.datetime,
                           end_date: datetime.datetime,
                           freq: str,
                           spot: bool) -> PairDataGenerator:
-
     logger = logging.getLogger(__name__)
 
     if spot:
@@ -200,18 +199,25 @@ def load_universe_candles(universe: Universe,
     else:
         subpath = 'futures/um'
 
-    for coin in universe.coins:
-        if not spot and coin.upper() in spot_to_future_names:
-            pair_fst = spot_to_future_names[coin.upper()]
-        else:
-            pair_fst = coin.upper()
+    if isinstance(universe, Universe):
+        pairs = []
+        for coin in universe.coins:
+            if not spot and coin.upper() in spot_to_future_names:
+                pair_fst = spot_to_future_names[coin.upper()]
+            else:
+                pair_fst = coin.upper()
 
-        pair_name = pair_fst + 'USDT'
+            pair_name = pair_fst + 'USDT'
+            pairs.append(pair_name)
+    else:
+        pairs = universe
 
+    for pair_name in pairs:
         try:
             subdf = load_candles(pair_name, subpath, freq, start_date, end_date)
         except FileNotFoundError as e:
             logger.error(str(e))
+            yield pair_name, None
             continue
 
         num_nans = subdf.isna().any(axis=1)

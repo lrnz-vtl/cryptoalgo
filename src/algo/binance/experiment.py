@@ -22,6 +22,8 @@ from pydantic import BaseModel
 
 from algo.definitions import ROOT_DIR
 
+EXP_BASEP = Path(ROOT_DIR) / 'experiments'
+
 
 class ExpArgs(BaseModel):
     mcap_date: datetime.date
@@ -35,7 +37,8 @@ class ExpArgs(BaseModel):
     tto: TrainTestOptions
 
 
-def fit_eval_products(product_data: dict[str, ProductFitData], opt: ModelOptions) -> tuple[dict[str, ProductFitResult], float]:
+def fit_eval_products(product_data: dict[str, ProductFitData], opt: ModelOptions) -> tuple[
+    dict[str, ProductFitResult], float]:
     ress = {pair: fit_product(x, opt) for pair, x in product_data.items()}
 
     totdf = pd.concat((pd.concat([x.res.test.ytrue, x.res.test.ypred], axis=1) for pair, x in ress.items()), axis=0)
@@ -112,7 +115,7 @@ class TestExperiment(unittest.TestCase):
                                          vol_scaling=True
                                          )
         start_date = datetime.datetime(year=2022, month=1, day=1)
-        end_date = datetime.datetime(year=2023, month=6, day=1)
+        end_date = datetime.datetime(year=2022, month=6, day=1)
 
         tto = TrainTestOptions(
             train_end_time=datetime.datetime(year=2022, month=4, day=1),
