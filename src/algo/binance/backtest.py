@@ -5,77 +5,42 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-import scipy
 from pydantic import BaseModel
+from scipy.sparse.linalg import ArpackError
 
 from algo.binance.coins import load_universe_candles
 from algo.binance.experiment import ExpArgs, EXP_BASEP
 from algo.binance.features import features_from_data
 from algo.binance.model import ProductModel
+from algo.binance.optimiser import OptimiserCfg, Optimiser
 from algo.binance.utils import read_json, to_datetime
 from algo.cpp.cseries import shift_forward
-import cvxpy as cp
 
 from algo.definitions import ROOT_DIR
 
 SIMS_BASEP = ROOT_DIR / 'sims'
 
+# Minimum trade size in dollar terms
+MIN_TRADE_SIZE = 10
+
+
+class SimulatorCfg(BaseModel):
+    exp_name: str
+    end_time: datetime.datetime
+    opts: list[OptimiserCfg]
+    trade_pair_limit: Optional[int]
+    # Half life in units of 5 minutes
+    ema_hf_periods: Optional[float] = None
+
 
 @dataclass
-class OptimiserCfg:
-    comm: float
-    risk_coef: float
-    poslim: float
-    cash_flat: bool
-    mkt_flat: bool
-
-
-class Optimiser:
-
-    def __init__(self, betas: np.array, cfg: OptimiserCfg):
-        self.cfg = cfg
-        self.update_betas(betas)
-
-    def update_betas(self, betas):
-        self.betas = betas
-        self.n = len(betas)
-        n = self.n
-        self.comms = self.cfg.comm * np.ones(n)
-        self.risk = self.cfg.risk_coef * scipy.sparse.eye(n)
-        self.poslims = self.cfg.poslim * np.ones(n)
-        self.ones = np.ones(n)
-        self.zeros = np.zeros(n)
-
-    def optimise(self, position: np.array, signal: np.array) -> np.array:
-        assert position.shape[0] == self.n
-        assert signal.shape[0] == self.n
-
-        # kvbuy = -self.risk * position + (signal - self.comms)
-        # kvsell = self.risk * position + (-signal - self.comms)
-        # if (kvbuy <= 0).all() and (kvsell <= 0).all():
-        #     return self.zeros
-
-        xb = cp.Variable(self.n)
-        xs = cp.Variable(self.n)
-
-        cons = [
-            xb >= self.zeros,
-            xs >= self.zeros,
-            (position + xb - xs) <= self.poslims,
-            (position + xb - xs) >= -self.poslims
-        ]
-        if self.cfg.cash_flat:
-            cons.append(self.ones @ (position + xb - xs) == 0)
-        if self.cfg.mkt_flat:
-            cons.append(self.betas @ (position + xb - xs) == 0)
-
-        prob = cp.Problem(
-            cp.Minimize((1 / 2) * cp.quad_form(position + xb - xs, self.risk) - signal.T @ (xb - xs) +
-                        self.comms @ xb + self.comms @ xs), cons
-        )
-        # NOTE Can port this to rust
-        prob.solve(solver='OSQP')
-        return xb.value - xs.value
+class AcctStats:
+    qtys: np.array
+    notional: np.array
+    pnl: np.array
+    mkt_exposure: np.array
+    cash_exposure: np.array
+    trade_signals: np.array
 
 
 class TradeAcct:
@@ -93,6 +58,8 @@ class TradeAcct:
         self.mkt_exposure = np.zeros(nsteps)
         self.cash_exposure = np.zeros(nsteps)
 
+        self.trade_signals = np.zeros((nsteps, n_pairs))
+
         self.mask = np.full(n_pairs, True)
         self.i = 0
 
@@ -106,11 +73,14 @@ class TradeAcct:
         self.i += 1
 
     def trade(self, signals, prices):
+
         mask = self.mask
         i = self.i
 
         signals = signals[self.mask]
         prices = prices[self.mask]
+
+        self.trade_signals[i][self.mask] = signals
 
         self.pnl[i][mask] = self.qtys[i - 1][mask] * prices - self.notional[i - 1][mask]
 
@@ -119,10 +89,14 @@ class TradeAcct:
             try:
                 delta_dollars = self.opt.optimise(self.qtys[i - 1][mask] * prices, signals)
                 break
-            except Exception as e:
+            except ArpackError as e:
                 if n_tries == 0:
                     raise e
                 n_tries -= 1
+            except RuntimeError as e:
+                raise e
+
+        delta_dollars[abs(delta_dollars) < MIN_TRADE_SIZE] = 0
 
         self.notional[i][mask] = self.notional[i - 1][mask] + delta_dollars
         self.qtys[i][mask] = self.qtys[i - 1][mask] + delta_dollars / prices
@@ -131,21 +105,20 @@ class TradeAcct:
 
         self.cash_exposure[i] = (self.qtys[i][mask] * prices).sum()
 
-
-class SimulatorCfg(BaseModel):
-    exp_name: str
-    end_time: datetime.datetime
-    risk_coefs: list[float]
-    cash_flat: bool
-    mkt_flat: bool
-    trade_pair_limit: Optional[int]
-    # Half life in units of 5 minutes
-    ema_hf_periods: Optional[float] = None
+    def serialise(self) -> AcctStats:
+        return AcctStats(
+            qtys=self.qtys,
+            notional=self.notional,
+            pnl=self.pnl,
+            mkt_exposure=self.mkt_exposure,
+            cash_exposure=self.cash_exposure,
+            trade_signals=self.trade_signals
+        )
 
 
 @dataclass
 class SimResults:
-    accts: dict[float, TradeAcct]
+    cfgs_accts: list[tuple[OptimiserCfg, AcctStats]]
     signals_matrix: np.array
     prices: np.array
     times: np.array
@@ -197,7 +170,7 @@ class Simulator:
             signals[pair] = signal
 
             price_ts = ((df['Close'] + df['Open']) / 2.0).rename('price')
-            exec_price_ts = pd.Series(shift_forward(price_ts.index, price_ts.values, 1), index=df.index)
+            exec_price_ts = pd.Series(shift_forward(price_ts.index.values.copy(), price_ts.values.copy(), 1), index=df.index)
             exec_price_ts = exec_price_ts[to_datetime(exec_price_ts.index) > start_time]
             exec_prices[pair] = exec_price_ts
 
@@ -245,49 +218,45 @@ class Simulator:
         self.signals_matrix = signals_matrix
         self.exec_prices_matrix = exec_prices_matrix
 
-    def run(self):
-        risk_coefs = self.cfg.risk_coefs
+        self.opt_cfgs = self.cfg.opts
 
-        accts: dict[float, TradeAcct] = {coef:
-                                             TradeAcct(self.betas,
-                                                       OptimiserCfg(comm=0.0001,
-                                                                    risk_coef=coef,
-                                                                    poslim=1000,
-                                                                    cash_flat=self.cfg.cash_flat,
-                                                                    mkt_flat=self.cfg.mkt_flat
-                                                                    ),
-                                                       self.nsteps,
-                                                       len(self.pairs)
-                                                       )
-                                         for coef in risk_coefs}
+    def run(self):
+
+        accts: list[TradeAcct] = [TradeAcct(self.betas,
+                                            cfg=cfg_opt,
+                                            nsteps=self.nsteps,
+                                            n_pairs=len(self.pairs)
+                                            )
+                                  for cfg_opt in self.cfg.opts]
 
         signals = np.zeros(len(self.pairs))
 
         for i in range(1, self.nsteps):
 
-            for coef in risk_coefs:
-                accts[coef].update_step()
+            for acct in accts:
+                acct.update_step()
 
             t = self.times[i]
             if t in self.removal_times:
                 for j in self.removal_times[t]:
                     self.logger.warning(f'Removing pair {j=}, {self.pairs[j]=}')
-                    for coef in risk_coefs:
-                        accts[coef].remove_pair(j)
+                    for acct in accts:
+                        acct.remove_pair(j)
 
             raw_signals = self.signals_matrix[i]
             if self.cfg.ema_hf_periods:
-                alpha = np.exp(-1.0/self.cfg.ema_hf_periods)
-                signals = alpha*signals + (1-alpha)*raw_signals
+                alpha = np.exp(-1.0 / self.cfg.ema_hf_periods)
+                signals = alpha * signals + (1 - alpha) * raw_signals
             else:
                 signals = raw_signals
 
-            for coef in risk_coefs:
-                accts[coef].trade(signals, self.exec_prices_matrix[i])
+            for acct in accts:
+                acct.trade(signals, self.exec_prices_matrix[i])
 
-        return SimResults(accts=accts,
-                          signals_matrix=self.signals_matrix,
-                          pairs=self.pairs,
-                          times=self.times,
-                          prices=self.exec_prices_matrix
-                          )
+        return SimResults(
+            cfgs_accts=list(zip(self.opt_cfgs, (acct.serialise() for acct in accts))),
+            signals_matrix=self.signals_matrix,
+            pairs=self.pairs,
+            times=self.times,
+            prices=self.exec_prices_matrix
+        )

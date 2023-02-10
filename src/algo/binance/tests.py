@@ -6,7 +6,7 @@ import pandas as pd
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import RobustScaler
 
-from algo.binance.backtest import SimulatorCfg, Simulator, SimResults
+from algo.binance.backtest import SimulatorCfg, Simulator, SimResults, OptimiserCfg
 from algo.binance.features import FeatureOptions, VolumeOptions
 from algo.binance.fit import fit_eval_model, UniverseDataOptions, fit_product
 from algo.binance.coins import Universe, load_universe_candles, all_symbols, top_mcap, symbol_to_ids
@@ -117,24 +117,43 @@ class TestBack(unittest.TestCase):
         super().__init__(*args, **kwargs)
 
     def test_run(self):
+        opts: list[OptimiserCfg] = [
+            OptimiserCfg(
+                comm=0.0001,
+                risk_coef=10**(-5),
+                poslim=10000,
+                cash_flat=False,
+                mkt_flat=True,
+                max_trade_size_usd=1000,
+            ),
+            # OptimiserCfg(
+            #     comm=0.0001,
+            #     risk_coef=10 ** (-6),
+            #     poslim=10000,
+            #     cash_flat=False,
+            #     mkt_flat=True,
+            #     max_trade_size_usd=1000,
+            # )
+        ]
         cfg = SimulatorCfg(exp_name='spot_slow',
-                           end_time=datetime.datetime(year=2022, month=9, day=1),
+                           end_time=datetime.datetime(year=2022, month=8, day=15),
                            trade_pair_limit=2,
-                           risk_coefs=[0.001],
-                           cash_flat=False,
-                           mkt_flat=True,
+                           opts=opts,
                            ema_hf_periods=5,
                            )
         self.sim = Simulator(cfg)
 
         res = self.sim.run()
-        plot_results(res, None)
+        # plot_results(res, None)
 
     def test_b(self):
         fname = '/home/lorenzo/algo/sims/spot_slow_flat/results.pkl'
         x: SimResults = pd.read_pickle(fname)
         plot_results(x, None, coefs_list=[0.01])
 
+    def test_opt(self):
+        pass
+
 
 if __name__ == '__main__':
-    unittest.main()
+    TestBack().test_run()

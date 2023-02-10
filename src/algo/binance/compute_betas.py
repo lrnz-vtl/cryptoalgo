@@ -14,10 +14,10 @@ class BetaStore:
         self.logger = logging.getLogger(__name__)
 
         def shift_group_forward(x, y, ms):
-            return pd.Series(shift_forward(x, y, ms), index=x)
+            return pd.Series(shift_forward(x.values.copy(), y.values.copy(), ms), index=x)
 
         forward_price_ts = price_ts.groupby('pair').apply(
-            lambda x: shift_group_forward(x.index.get_level_values(1), x.values, hours_forward))
+            lambda x: shift_group_forward(x.index.get_level_values(1), x, hours_forward))
 
         ret_ts: pd.Series = np.log(forward_price_ts) - np.log(price_ts)
         ret_df = ret_ts.unstack(level=0)

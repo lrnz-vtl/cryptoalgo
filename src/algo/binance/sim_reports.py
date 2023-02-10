@@ -134,29 +134,29 @@ def plot_results(x: SimResults, dst_path: Optional[Path], coefs_list: Optional[l
         x.accts = {k: v for k, v in x.accts.items() if k in coefs_list}
 
     volumes = {}
-    for coef, acct in x.accts.items():
+    for i, (cfg, acct) in enumerate(x.cfgs_accts):
         nsteps = acct.notional.shape[0]
         shifted = np.zeros((nsteps, len(x.pairs)))
         shifted[:(nsteps - 1)] = acct.notional[1:]
-        volumes[coef] = abs(acct.notional - shifted)
-        volumes[coef][-1, :] = 0
+        volumes[i] = abs(acct.notional - shifted)
+        volumes[i][-1, :] = 0
 
     plot_global_results(times=times,
-                        qtys={coef: (acct.qtys * x.prices).sum(axis=1) for coef, acct in x.accts.items()},
-                        pnl={coef: acct.pnl.sum(axis=1) for coef, acct in x.accts.items()},
-                        notional={coef: acct.notional.sum(axis=1) for coef, acct in x.accts.items()},
-                        volume={coef: volumes[coef].sum(axis=1) for coef, acct in x.accts.items()},
-                        mkt_exposure={coef: acct.mkt_exposure for coef, acct in x.accts.items()},
-                        cash_exposure={coef: acct.cash_exposure for coef, acct in x.accts.items()},
+                        qtys={i: (acct.qtys * x.prices).sum(axis=1) for i, (coef, acct) in enumerate(x.cfgs_accts)},
+                        pnl={i: acct.pnl.sum(axis=1) for i, (coef, acct) in enumerate(x.cfgs_accts)},
+                        notional={i: acct.notional.sum(axis=1) for i, (coef, acct) in enumerate(x.cfgs_accts)},
+                        volume={i: volumes[i].sum(axis=1) for i, (coef, acct) in enumerate(x.cfgs_accts)},
+                        mkt_exposure={i: acct.mkt_exposure for i, (coef, acct) in enumerate(x.cfgs_accts)},
+                        cash_exposure={i: acct.cash_exposure for i, (coef, acct) in enumerate(x.cfgs_accts)},
                         dst_path=dst_path
                         )
 
     for j, pair in enumerate(x.pairs):
         plot_pair_results(times=times,
-                          qtys={coef: acct.qtys[:, j] * x.prices[:, j] for coef, acct in x.accts.items()},
-                          pnl={coef: acct.pnl[:, j] for coef, acct in x.accts.items()},
-                          notional={coef: acct.notional[:, j] for coef, acct in x.accts.items()},
-                          volume={coef: volumes[coef][:, j] for coef, acct in x.accts.items()},
+                          qtys={i: acct.qtys[:, j] * x.prices[:, j] for i, (coef, acct) in enumerate(x.cfgs_accts)},
+                          pnl={i: acct.pnl[:, j] for i, (coef, acct) in enumerate(x.cfgs_accts)},
+                          notional={i: acct.notional[:, j] for i, (coef, acct) in enumerate(x.cfgs_accts)},
+                          volume={i: volumes[i][:, j] for i, (coef, acct) in enumerate(x.cfgs_accts)},
                           signals=x.signals_matrix[:, j],
                           prices=x.prices[:, j],
                           pair_name=pair,

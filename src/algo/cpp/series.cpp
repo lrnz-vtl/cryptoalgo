@@ -112,6 +112,40 @@ py::array_t<double> shift_forward(py::array_t<ulong> ts, py::array_t<double> xs,
     return future_xs;
 }
 
+py::array_t<double> autocorr(py::array_t<double> xs, ulong n_periods) {
+
+    py::buffer_info xs_buf = xs.request();
+    double *xs_ptr = static_cast<double *>(xs_buf.ptr);
+
+    ulong n = 0;
+    double sum = 0;
+
+    py::array_t<double> ret = py::array_t<double>(n_periods);
+    py::buffer_info ret_buf = ret.request();
+    double *ret_ptr = static_cast<double *>(ret_buf.ptr);
+
+    for (auto j=0; j<n_periods; j++) {
+        ret_ptr[j] = 0.0;
+    }
+
+    for (auto i=0; i<xs_buf.size-n_periods; i++) {
+        n +=1;
+        sum += xs_ptr[i];
+
+        for (auto j=0; j<n_periods; j++) {
+            ret_ptr[j] += xs_ptr[i]*xs_ptr[i+j];
+        }
+    }
+
+    double variance = ret_ptr[0]/double(n);
+    double mean = sum/double(n);
+
+    for (auto j=0; j<n_periods; j++) {
+        ret_ptr[j] = (ret_ptr[j]/double(n) - mean*mean)/(variance-mean*mean);
+    }
+    return ret;
+}
+
 
 
 PYBIND11_MODULE(cseries, m) {
@@ -122,4 +156,6 @@ PYBIND11_MODULE(cseries, m) {
     m.def("compute_ema", &compute_ema, "compute_ema");
 
     m.def("compute_expsum", &compute_expsum, "compute_expsum");
+
+    m.def("autocorr", &autocorr, "autocorr");
 }

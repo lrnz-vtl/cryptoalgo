@@ -9,6 +9,9 @@ typedef unsigned long int ulong;
 
 py::array_t<double> shift_forward(py::array_t<unsigned long int>, py::array_t<double>, ulong);
 
+
+py::array_t<double> autocorr(py::array_t<double> xs, ulong n_periods);
+
 class EMA {
     ulong m_last_t;
     double m_last_value, m_decay_scale;

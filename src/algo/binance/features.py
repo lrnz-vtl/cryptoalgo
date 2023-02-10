@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 import numpy as np
-from algo.cpp.cseries import shift_forward, compute_ema, compute_expsum
+from algo.cpp.cseries import compute_ema, compute_expsum
 import pandas as pd
 from pydantic import BaseModel
 
@@ -29,7 +29,7 @@ def features_from_data(df: pd.DataFrame, ema_options: FeatureOptions) -> pd.Data
 
     def make_ema(dh):
         dms = ms_in_hour * dh
-        return compute_ema(price_ts.index, price_ts.values, dms)
+        return compute_ema(price_ts.index.values.copy(), price_ts.values.copy(), dms)
 
     if ema_options.include_current:
         logema0 = np.log(price_ts)
@@ -54,7 +54,7 @@ def features_from_data(df: pd.DataFrame, ema_options: FeatureOptions) -> pd.Data
             for dh in decays_hours:
                 # NOTE Assumes five minutes separated rows
                 alpha = 1.0 - np.exp(-1 / (12 * dh))
-                logretvol_expsum = compute_expsum((logret_ts * volume_ts).values, alpha)
+                logretvol_expsum = compute_expsum((logret_ts * volume_ts).values.copy(), alpha)
                 # FIXME Do this with no lookahead
                 ft = logretvol_expsum / volume_norm
                 fts.append(pd.Series(ft, index=price_ts.index, name=f'logretvol_{dh}'))
@@ -66,8 +66,8 @@ def features_from_data(df: pd.DataFrame, ema_options: FeatureOptions) -> pd.Data
             for dh in decays_hours:
                 # NOTE Assumes five minutes separated rows
                 alpha = 1.0 - np.exp(-1 / (12 * dh))
-                buy_volume_expsum = compute_expsum(buy_volume.values, alpha)
-                sell_volume_expsum = compute_expsum(sell_volume.values, alpha)
+                buy_volume_expsum = compute_expsum(buy_volume.values.copy(), alpha)
+                sell_volume_expsum = compute_expsum(sell_volume.values.copy(), alpha)
                 fts.append(pd.Series(buy_volume_expsum, index=price_ts.index, name=f'buyvol_{dh}'))
                 fts.append(pd.Series(sell_volume_expsum, index=price_ts.index, name=f'sellvol_{dh}'))
 

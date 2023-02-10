@@ -68,8 +68,8 @@ class SimpleResponse(LookaheadResponse):
     def _call(self, df: pd.DataFrame) -> pd.Series:
         price = df[self.col].rename('price')
 
-        time_forward = shift_forward(price, self.minutes_forward)
-        start_time_forward = shift_forward(price, self.start_minutes_forward)
+        time_forward = shift_forward(price.values.copy(), self.minutes_forward)
+        start_time_forward = shift_forward(price.values.copy(), self.start_minutes_forward)
 
         # time_forward = price.copy()
         # time_forward.index = time_forward.index.set_levels(

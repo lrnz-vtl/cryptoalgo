@@ -23,7 +23,7 @@ from algo.binance.utils import TrainTestOptions
 
 
 def run(n_coins, spot, name, test):
-    format = '[%(asctime)s] {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s'
+    fmt = '[%(asctime)s] {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s'
 
     dst_path = EXP_BASEP / name
     os.makedirs(dst_path, exist_ok=True)
@@ -31,7 +31,7 @@ def run(n_coins, spot, name, test):
     logging.basicConfig(
         filename=dst_path / 'log.log',
         level=logging.INFO,
-        format=format,
+        format=fmt,
         datefmt='%H:%M:%S'
     )
     console = logging.StreamHandler()

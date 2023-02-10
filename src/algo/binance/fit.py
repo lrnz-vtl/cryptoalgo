@@ -150,8 +150,8 @@ class ProductDataStore:
 
     def make_target(self, forward_hour: int) -> tuple[pd.Series, pd.Series]:
         fms = ms_in_hour * forward_hour
-        forward_price_0 = shift_forward(self.price_ts.index, self.price_ts.values, 1)
-        forward_price = shift_forward(self.price_ts.index, self.price_ts.values, fms)
+        forward_price_0 = shift_forward(self.price_ts.index.values.copy(), self.price_ts.values.copy(), 1)
+        forward_price = shift_forward(self.price_ts.index.values.copy(), self.price_ts.values.copy(), fms)
         target = pd.Series(np.log(forward_price) - np.log(forward_price_0), index=self.price_ts.index)
 
         return target.loc[self.train_idx], target.loc[self.test_idx]
