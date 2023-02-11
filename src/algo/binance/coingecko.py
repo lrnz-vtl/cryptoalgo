@@ -3,26 +3,39 @@ import json
 import logging
 import os
 import unittest
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 import requests
 
+from algo.definitions import ROOT_DIR
+
 RateLimitException = Exception
 
+exclude_symbols = {'busd',
+                   'dai',
+                   'tusd',
+                   'paxg',  # Gold
+                   'usdt',
+                   'usdc'
+                   }
 
-def persist_to_file(file_name):
+
+def persist_to_file(file_path: Path):
+    os.makedirs(file_path.parent, exist_ok=True)
+
     def decorator(original_func):
 
-        if os.path.exists(file_name):
-            cache = pd.read_pickle(file_name)
+        if os.path.exists(file_path):
+            cache = pd.read_pickle(file_path)
         else:
             cache = {}
 
         def new_func(*param):
             if param not in cache:
                 cache[param] = original_func(*param)
-                pd.to_pickle(cache, file_name)
+                pd.to_pickle(cache, file_path)
             return cache[param]
 
         return new_func
@@ -30,7 +43,7 @@ def persist_to_file(file_name):
     return decorator
 
 
-@persist_to_file('/home/lorenzo/caches/symbol_to_ids.dat')
+@persist_to_file(ROOT_DIR / 'caches' / 'symbol_to_ids.dat')
 def symbol_to_ids() -> dict[str, list[str]]:
     url = 'https://api.coingecko.com/api/v3/coins/list'
     x = requests.get(url)
@@ -49,7 +62,7 @@ def symbol_to_ids() -> dict[str, list[str]]:
     return ret
 
 
-@persist_to_file('/home/lorenzo/caches/get_mcap.dat')
+@persist_to_file(ROOT_DIR / 'caches' / 'get_mcap.dat')
 def get_mcap(coin_id: str, date: datetime.date) -> Optional[float]:
     logger = logging.getLogger(__name__)
 
@@ -69,6 +82,32 @@ def get_mcap(coin_id: str, date: datetime.date) -> Optional[float]:
         return oi_json['market_data']['market_cap']['usd']
     except KeyError as e:
         raise KeyError(oi_data) from e
+
+
+@persist_to_file(ROOT_DIR / 'caches' / 'get_mcaps_today.dat')
+def get_mcaps_today(date_today: datetime.date):
+    logger = logging.getLogger(__name__)
+
+    url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false'
+    oi_data = requests.get(url)
+    oi_json = oi_data.json()
+    if not oi_data.ok:
+        if oi_json['status']['error_message'].startswith("You've exceeded the Rate Limit"):
+            raise RateLimitException
+        raise requests.RequestException(oi_json)
+
+    ret = []
+
+    for data in oi_json:
+        try:
+            cid = data['id']
+            symbol = data['symbol']
+            mcap = data['market_cap']
+            ret.append((cid, symbol, mcap))
+
+        except KeyError as e:
+            raise KeyError(oi_data) from e
+    return ret
 
 
 class TestApi(unittest.TestCase):

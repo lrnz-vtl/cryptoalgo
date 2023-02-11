@@ -6,9 +6,8 @@ import pandas as pd
 import scipy.stats.mstats
 from algo.cpp.cseries import shift_forward
 from sklearn.preprocessing import RobustScaler
-
-from algo.binance.coins import PairDataGenerator
 from algo.binance.compute_betas import BetaStore
+from algo.binance.dataloader import PairDataGenerator
 from algo.binance.features import ms_in_hour, FeatureOptions, features_from_data
 from algo.binance.utils import TrainTestOptions, to_datetime
 
@@ -133,7 +132,7 @@ class ProductDataStore:
     def __init__(self, df: pd.DataFrame, ema_options: FeatureOptions, opt: TrainTestOptions):
         self.logger = logging.getLogger(__name__)
 
-        self.price_ts = ((df['Close'] + df['Open']) / 2.0).rename('price')
+        self.price_ts = df['price']
         self.feature_df = features_from_data(df, ema_options)
 
         self.train_idx = to_datetime(self.feature_df.index) < opt.train_end_time
@@ -177,7 +176,7 @@ class UniverseDataStore:
             if df is None:
                 continue
 
-            price_ts = ((df['Close'] + df['Open']) / 2.0).rename('price')
+            price_ts = df['price']
             price_tss[pair] = price_ts
 
             if pair in remaining_market_pairs:

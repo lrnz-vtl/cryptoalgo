@@ -37,7 +37,7 @@ if __name__ == '__main__':
     if args.type == 'aggTrades':
         data_type = AggTradesType()
     elif args.type == 'Klines':
-        data_type = KlineType('5m')
+        data_type = KlineType(freq='5m')
     else:
         raise ValueError
 

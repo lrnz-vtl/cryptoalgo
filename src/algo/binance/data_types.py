@@ -2,17 +2,19 @@ from abc import ABC, abstractmethod
 import numpy as np
 import pandas as pd
 import polars as pl
+from pydantic import BaseModel, Extra
 
 MS_IN_5MIN = 1000 * 60 * 5
 
 
-class DataType(ABC):
+class DataType(BaseModel, ABC):
+
     @abstractmethod
     def subpath(self) -> str:
         pass
 
     @abstractmethod
-    def filename_pattern(self, str) -> str:
+    def filename_pattern(self, x: str) -> str:
         pass
 
     @abstractmethod
@@ -41,14 +43,13 @@ class DataType(ABC):
 
 
 class KlineType(DataType):
+    freq: str
+
     def process_frame(self, df: pl.LazyFrame) -> pl.LazyFrame:
         return df
 
     def buy_volume_op(self, df: pd.DataFrame) -> pd.Series:
         return df['Taker buy base asset volume']
-
-    def __init__(self, freq: str):
-        self.freq = freq
 
     def orig_columns(self):
         return ['Open time', 'Open', 'High', 'Low', 'Close', 'Volume', 'Close time', 'Quote asset volume',
@@ -58,7 +59,7 @@ class KlineType(DataType):
         return rf'{pair_name}-{self.freq}-(\d\d\d\d)-(\d\d).parquet'
 
     def subpath(self):
-        return f'Klines/{self.freq}'
+        return f'klines'
 
     def timestamp_col(self) -> str:
         return 'Close time'

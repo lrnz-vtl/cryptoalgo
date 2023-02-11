@@ -14,6 +14,8 @@ from sklearn.linear_model import Ridge
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from algo.binance.coins import SpotType, Universe, MarketType, FutureType
+from algo.binance.data_types import KlineType, DataType, AggTradesType
 from algo.binance.evaluation import plot_eval
 from algo.binance.experiment import ExpArgs, Experiment, fit_eval_products, Validator, EXP_BASEP
 from algo.binance.features import VolumeOptions, FeatureOptions
@@ -22,25 +24,8 @@ from algo.binance.model import ProductModel
 from algo.binance.utils import TrainTestOptions
 
 
-def run(n_coins, spot, name, test):
-    fmt = '[%(asctime)s] {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s'
-
-    dst_path = EXP_BASEP / name
-    os.makedirs(dst_path, exist_ok=True)
-
-    logging.basicConfig(
-        filename=dst_path / 'log.log',
-        level=logging.INFO,
-        format=fmt,
-        datefmt='%H:%M:%S'
-    )
-    console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
-    formatter = logging.Formatter(format)
-    console.setFormatter(formatter)
-    logging.getLogger('').addHandler(console)
-    logger = logging.getLogger(__name__)
-
+def make_exp_args(n_coins: int, market_type: MarketType, data_type: DataType, test: bool,
+                  lookahead: bool = False):
     if test:
         vol = VolumeOptions(include_imbalance=False, include_logretvol=False)
 
@@ -66,7 +51,7 @@ def run(n_coins, spot, name, test):
         )
 
     # feature_options = FeatureOptions(decay_hours=[4, 12, 24, 48, 96], volume_options=vol)
-    feature_options = FeatureOptions(decay_hours=[1/6, 4, 12, 24, 48, 96], volume_options=vol, include_current=False)
+    feature_options = FeatureOptions(decay_hours=[1 / 6, 4, 12, 24, 48, 96], volume_options=vol, include_current=False)
     ro = ResidOptions(market_pairs=['BTCUSDT', 'ETHUSDT'])
 
     forward_hour = 24
@@ -76,21 +61,29 @@ def run(n_coins, spot, name, test):
                                      vol_scaling=True
                                      )
 
+    if lookahead:
+        universe = Universe.make_lookahead(n_coins)
+    else:
+        mcap_date = datetime.date(year=2022, month=1, day=1)
+        universe = Universe.make(n_coins, mcap_date=mcap_date, market_type=market_type, data_type=data_type, )
+
     exp_args = ExpArgs(
-        mcap_date=datetime.date(year=2022, month=1, day=1),
-        n_coins=n_coins,
+        universe=universe,
+        market_type=market_type,
+        data_type=data_type,
         start_date=start_date,
         end_date=end_date,
         feature_options=feature_options,
         ro=ro,
         ud_options=ud_options,
-        spot=spot,
         tto=tto
     )
-    with open(dst_path / 'exp_args.json', 'w') as f:
-        f.write(exp_args.json(indent=4))
 
-    exp = Experiment(exp_args)
+    return exp_args
+
+
+def run_experiment(exp: Experiment, dst_path: Path):
+    logger = logging.getLogger(__name__)
 
     def transform_model_after_fit(lm):
         assert hasattr(lm['ridge'], 'intercept_')
@@ -154,24 +147,89 @@ def run(n_coins, spot, name, test):
     pd.to_pickle(ress, dst_path / 'results.pkl')
 
     plot_eval({k: v.res for k, v in ress.items()}, dst_path / 'plots')
-    # plt.savefig(dst_path / 'evaluations.png')
+
+
+def run(name: str, n_coins: int, market_type: MarketType, data_type: DataType, test: bool,
+        lookahead: bool = False):
+    fmt = '[%(asctime)s] {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s'
+
+    dst_path = EXP_BASEP / name
+    os.makedirs(dst_path, exist_ok=True)
+
+    logging.basicConfig(
+        filename=dst_path / 'log.log',
+        level=logging.DEBUG,
+        format=fmt,
+        datefmt='%H:%M:%S'
+    )
+    console = logging.StreamHandler()
+    console.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(fmt)
+    console.setFormatter(formatter)
+    logging.getLogger('').addHandler(console)
+
+    exp_args = make_exp_args(n_coins, market_type, data_type, test, lookahead)
+
+    with open(dst_path / 'exp_args.json', 'w') as f:
+        f.write(exp_args.json(indent=4))
+
+    exp = Experiment(exp_args)
+    run_experiment(exp, dst_path)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('name')
-    parser.add_argument('-n', type=int, required=True)
+    parser.add_argument('--n-coins', type=int, required=True)
     parser.add_argument('--spot', action='store_true')
+    parser.add_argument('--agg', action='store_true')
     parser.add_argument('--test', action='store_true')
 
     args = parser.parse_args()
-    n_coins = args.n
     spot = args.spot
-    name = args.name
-    run(n_coins, spot, name, args.test)
+    if spot:
+        market_type = SpotType()
+    else:
+        market_type = FutureType()
+
+    if args.agg:
+        data_type = AggTradesType()
+    else:
+        data_type = KlineType(freq='5m')
+
+    run(args.name, args.n_coins, market_type, data_type=data_type, lookahead=False, test=args.test)
 
 
 class TestExp(unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
+                            level=logging.INFO)
+
+        self.logger = logging.getLogger(__name__)
+
     def test_a(self):
-        run(10, False, 'test', True)
+        market_type = SpotType()
+        data_type = KlineType(freq='5m')
+        run(name='test_spot_220211', n_coins=4, market_type=market_type, data_type=data_type, test=True, lookahead=True)
+
+    def test_a1(self):
+        market_type = SpotType()
+        data_type = AggTradesType()
+        run(name='test_spot_agg_220211', n_coins=4, market_type=market_type, data_type=data_type, test=True, lookahead=True)
+
+    def test_a2(self):
+        market_type = FutureType()
+        data_type = KlineType(freq='5m')
+        run(name='test_220211', n_coins=4, market_type=market_type, data_type=data_type, test=True, lookahead=True)
+
+    def test_b(self):
+        market_type = SpotType()
+        data_type = KlineType(freq='5m')
+        run(name='test100_220211', n_coins=100, market_type=market_type, data_type=data_type, test=True, lookahead=True)
+
+    def test_b1(self):
+        market_type = SpotType()
+        data_type = AggTradesType()
+        run(name='test100_220211', n_coins=100, market_type=market_type, data_type=data_type, test=True, lookahead=True)

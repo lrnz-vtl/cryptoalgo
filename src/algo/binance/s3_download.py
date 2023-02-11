@@ -35,7 +35,6 @@ class BucketDataProcessor:
 
         assert prefix.startswith('data')
         subpath = prefix[4:]
-        print(f'{subpath=}')
 
         self.base_path = Path(str(ROOT_DIR / 'data' / bucket_name) + subpath)
 
@@ -55,7 +54,7 @@ class BucketDataProcessor:
 
         for bucket_object in bucket.objects.filter(Prefix=self.prefix):
 
-            logger.debug(f'Read unfiltered {bucket_object.key=}')
+            # logger.debug(f'Read unfiltered {bucket_object.key=}')
 
             if not bucket_object.key.endswith('.zip'):
                 continue
@@ -78,10 +77,10 @@ class BucketDataProcessor:
             if not pair_name.endswith('USDT') and not pair_name.endswith('BUSD'):
                 continue
 
-            logger.info(f'Processing {bucket_object.key=}')
-
             if os.path.exists(dst_path_parquet):
                 continue
+
+            logger.info(f'Processing {bucket_object.key=}')
 
             arg = (bucket, bucket_object, dst_path_parquet, fname)
             self.q.put(arg)

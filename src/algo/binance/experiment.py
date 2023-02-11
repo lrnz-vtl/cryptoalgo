@@ -12,29 +12,33 @@ from sklearn.metrics import r2_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from algo.binance.coins import Universe, load_universe_data
+from algo.binance.coins import Universe, MarketType
+from algo.binance.data_types import DataType
+from algo.binance.dataloader import load_universe_data
 from algo.binance.features import FeatureOptions, VolumeOptions
 from algo.binance.fit import UniverseDataOptions, ResidOptions, UniverseDataStore, ModelOptions, fit_eval_model, \
     fit_product, ProductFitData, ProductFitResult
 from algo.binance.model import ProductModel
 from algo.binance.utils import TrainTestOptions
 from pydantic import BaseModel
-
 from algo.definitions import ROOT_DIR
 
 EXP_BASEP = Path(ROOT_DIR) / 'experiments'
 
 
 class ExpArgs(BaseModel):
-    mcap_date: datetime.date
-    n_coins: int
+    universe: Universe
     start_date: datetime.datetime
     end_date: datetime.datetime
     feature_options: FeatureOptions
     ro: ResidOptions
     ud_options: UniverseDataOptions
-    spot: bool
+    market_type: MarketType
+    data_type: DataType
     tto: TrainTestOptions
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 def fit_eval_products(product_data: dict[str, ProductFitData], opt: ModelOptions) -> tuple[
@@ -53,9 +57,7 @@ class Experiment:
         self.global_fit_results = None
         self.args = args
 
-        universe = Universe.make(args.n_coins, args.mcap_date)
-
-        generator = load_universe_candles(universe, args.start_date, args.end_date, '5m', args.spot)
+        generator = load_universe_data(args.universe, args.start_date, args.end_date, args.market_type, args.data_type)
 
         self.uds = UniverseDataStore(generator, args.feature_options, args.tto, args.ro)
 
