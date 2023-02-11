@@ -20,10 +20,7 @@ class Optimiser:
 
     def __init__(self, betas: np.array, cfg: OptimiserCfg):
         self.cfg = cfg
-        self.update_betas(betas)
-        self.logger = logging.getLogger(__name__)
 
-    def update_betas(self, betas):
         self.betas = betas
         self.n = len(betas)
         n = self.n
@@ -32,6 +29,8 @@ class Optimiser:
         self.poslims = self.cfg.poslim * np.ones(n)
         self.ones = np.ones(n)
         self.zeros = np.zeros(n)
+
+        self.logger = logging.getLogger(__name__)
 
     def debug(self, position, signal):
         self.logger.warning(f'{position=}')

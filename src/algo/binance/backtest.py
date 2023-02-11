@@ -5,10 +5,11 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+import pydantic
 from pydantic import BaseModel
 from scipy.sparse.linalg import ArpackError
 
-from algo.binance.coins import load_universe_candles
+from algo.binance.coins import load_universe_data, DataType, MarketType
 from algo.binance.experiment import ExpArgs, EXP_BASEP
 from algo.binance.features import features_from_data
 from algo.binance.model import ProductModel
@@ -24,7 +25,14 @@ SIMS_BASEP = ROOT_DIR / 'sims'
 MIN_TRADE_SIZE = 10
 
 
-class SimulatorCfg(BaseModel):
+class MyConfig:
+    arbitrary_types_allowed = True
+
+
+@pydantic.dataclasses.dataclass(config=MyConfig)
+class SimulatorCfg:
+    data_type: DataType
+    market_type: MarketType
     exp_name: str
     end_time: datetime.datetime
     opts: list[OptimiserCfg]
@@ -43,51 +51,50 @@ class AcctStats:
     trade_signals: np.array
 
 
-class TradeAcct:
-    def __init__(self, betas: np.array,
-                 cfg: OptimiserCfg,
-                 nsteps: int,
-                 n_pairs: int
-                 ):
+@dataclass
+class DailyStatsLog:
+    pass
+
+
+@dataclass
+class TradeLog:
+    pair_idx: int
+    dollar_size: float
+    signal: float
+    price: float
+    timestamp: int
+
+
+class PfolioAcctArray:
+    def __init__(self, n_pairs: int, betas: np.array, cfgs: list[OptimiserCfg]):
+        self.n_pairs = n_pairs
+
+        self.alive_indices = np.array([j for j in range(self.n_pairs)])
+        self.alive_mask = np.full(n_pairs, True)
+
+        self.cfgs = cfgs
         self.betas = betas
-        self.opt = Optimiser(betas, cfg)
-        self.qtys = np.zeros((nsteps, n_pairs))
-        self.notional = np.zeros((nsteps, n_pairs))
-        self.pnl = np.zeros((nsteps, n_pairs))
+        self.optimizers = [Optimiser(betas, cfg) for cfg in cfgs]
 
-        self.mkt_exposure = np.zeros(nsteps)
-        self.cash_exposure = np.zeros(nsteps)
+        self.n_variations = len(cfgs)
+        shape = (self.n_variations, n_pairs)
+        self.qtys = np.zeros(shape=shape)
+        self.notionals = np.zeros(shape=shape)
+        self.pnls = np.zeros(shape=shape)
 
-        self.trade_signals = np.zeros((nsteps, n_pairs))
-
-        self.mask = np.full(n_pairs, True)
-        self.i = 0
+        self.mkt_exposures = np.zeros(self.n_variations)
+        self.cash_exposures = np.zeros(self.n_variations)
 
     def remove_pair(self, j):
-        self.mask[j] = False
-        self.notional[self.i:, j] = self.notional[self.i - 1, j]
-        self.pnl[self.i:, j] = self.pnl[self.i - 1, j]
-        self.opt.update_betas(self.betas[self.mask])
+        self.alive_mask[j] = False
+        self.optimizers = [Optimiser(self.betas[self.alive_mask], cfg) for cfg in self.cfgs]
+        self.alive_indices = np.array([j for j in range(self.n_pairs) if self.alive_mask[j]])
 
-    def update_step(self):
-        self.i += 1
-
-    def trade(self, signals, prices):
-
-        mask = self.mask
-        i = self.i
-
-        signals = signals[self.mask]
-        prices = prices[self.mask]
-
-        self.trade_signals[i][self.mask] = signals
-
-        self.pnl[i][mask] = self.qtys[i - 1][mask] * prices - self.notional[i - 1][mask]
-
+    def optimise_variation(self, i: int, prices: np.array, signals: np.array):
         n_tries = 10
         while 1:
             try:
-                delta_dollars = self.opt.optimise(self.qtys[i - 1][mask] * prices, signals)
+                delta_dollars = self.optimizers[i].optimise(self.qtys[i, self.alive_mask] * prices, signals)
                 break
             except ArpackError as e:
                 if n_tries == 0:
@@ -96,33 +103,44 @@ class TradeAcct:
             except RuntimeError as e:
                 raise e
 
+        return delta_dollars
+
+    def trade(self, prices: np.array, signals: np.array):
+        prices = prices[self.alive_mask]
+        signals = signals[self.alive_mask]
+
+        self.pnls[:, self.alive_mask] = self.qtys[:, self.alive_mask] * prices - self.notionals[:, self.alive_mask]
+
+        delta_dollars = np.vstack([self.optimise_variation(i, prices, signals) for i in range(self.n_variations)])
         delta_dollars[abs(delta_dollars) < MIN_TRADE_SIZE] = 0
 
-        self.notional[i][mask] = self.notional[i - 1][mask] + delta_dollars
-        self.qtys[i][mask] = self.qtys[i - 1][mask] + delta_dollars / prices
+        self.notionals[:, self.alive_mask] += delta_dollars
+        self.qtys[:, self.alive_mask] += delta_dollars / prices
 
-        self.mkt_exposure[i] = self.betas[mask] @ (self.qtys[i][mask] * prices)
+        self.mkt_exposures = np.einsum('j,ij,j->i', self.betas[self.alive_mask], self.qtys[:, self.alive_mask], prices)
+        self.cash_exposures = np.einsum('ij,j -> i', self.qtys[:, self.alive_mask], prices)
 
-        self.cash_exposure[i] = (self.qtys[i][mask] * prices).sum()
+        return delta_dollars
 
-    def serialise(self) -> AcctStats:
-        return AcctStats(
-            qtys=self.qtys,
-            notional=self.notional,
-            pnl=self.pnl,
-            mkt_exposure=self.mkt_exposure,
-            cash_exposure=self.cash_exposure,
-            trade_signals=self.trade_signals
-        )
+
+@dataclass
+class PfolioLog:
+    qtys: np.array
+    notionals: np.array
+    pnls: np.array
+    mkt_exposure: float
+    cash_exposure: float
+
+
+VariationCollection = list
 
 
 @dataclass
 class SimResults:
-    cfgs_accts: list[tuple[OptimiserCfg, AcctStats]]
-    signals_matrix: np.array
-    prices: np.array
-    times: np.array
+    trade_logs: VariationCollection[list[TradeLog]]
+    daily_pfolio_logs: list[tuple[datetime.date, VariationCollection[PfolioLog]]]
     pairs: list[str]
+    opt_cfgs: VariationCollection[OptimiserCfg]
 
 
 class Simulator:
@@ -146,7 +164,9 @@ class Simulator:
 
         mkt_pairs = exp_args.ro.market_pairs
         mkt_features = []
-        for pair, df in load_universe_candles(mkt_pairs, data_start_time, end_time, '5m', exp_args.spot):
+        for pair, df in load_universe_data(mkt_pairs, data_start_time, end_time, cfg.market_type, cfg.data_type):
+            if df is None:
+                raise RuntimeError(f'Could not load data {mkt_pairs=}, {data_start_time=}, {end_time=}')
             new_mkt_features = features_from_data(df, exp_args.feature_options)
             new_mkt_features.columns = [f'{pair}_{col}' for col in new_mkt_features.columns]
             mkt_features.append(new_mkt_features)
@@ -155,7 +175,8 @@ class Simulator:
         trade_pairs = list(models.keys())
         if cfg.trade_pair_limit:
             trade_pairs = trade_pairs[:cfg.trade_pair_limit]
-        trade_data = load_universe_candles(trade_pairs, data_start_time, end_time, '5m', exp_args.spot)
+        trade_data = load_universe_data(trade_pairs, data_start_time, end_time, market_type=self.cfg.market_type,
+                                        data_type=self.cfg.data_type)
 
         signals = {}
         exec_prices = {}
@@ -169,8 +190,9 @@ class Simulator:
             signal = signal[to_datetime(signal.index) > start_time]
             signals[pair] = signal
 
-            price_ts = ((df['Close'] + df['Open']) / 2.0).rename('price')
-            exec_price_ts = pd.Series(shift_forward(price_ts.index.values.copy(), price_ts.values.copy(), 1), index=df.index)
+            price_ts = df['price']
+            exec_price_ts = pd.Series(shift_forward(price_ts.index.values.copy(), price_ts.values.copy(), 1),
+                                      index=df.index)
             exec_price_ts = exec_price_ts[to_datetime(exec_price_ts.index) > start_time]
             exec_prices[pair] = exec_price_ts
 
@@ -222,26 +244,35 @@ class Simulator:
 
     def run(self):
 
-        accts: list[TradeAcct] = [TradeAcct(self.betas,
-                                            cfg=cfg_opt,
-                                            nsteps=self.nsteps,
-                                            n_pairs=len(self.pairs)
-                                            )
-                                  for cfg_opt in self.cfg.opts]
-
+        n_pairs = len(self.pairs)
+        n_variations = len(self.cfg.opts)
+        pfolio_acct = PfolioAcctArray(n_pairs, self.betas, self.cfg.opts)
         signals = np.zeros(len(self.pairs))
 
+        trade_logs: VariationCollection[list[TradeLog]] = [[] for k in range(n_variations)]
+        daily_pfolio_logs: list[tuple[datetime.date, VariationCollection[PfolioLog]]] = []
+
+        last_date: datetime.date = to_datetime(self.times[0]).date()
+
         for i in range(1, self.nsteps):
-
-            for acct in accts:
-                acct.update_step()
-
             t = self.times[i]
+            date = to_datetime(t).date()
+            if date > last_date:
+                daily_pfolio_logs_collection = []
+                for k in range(n_variations):
+                    daily_pfolio_logs_collection.append(
+                        PfolioLog(qtys=pfolio_acct.qtys[k],
+                                  notionals=pfolio_acct.notionals[k],
+                                  pnls=pfolio_acct.pnls[k],
+                                  mkt_exposure=pfolio_acct.mkt_exposures[k],
+                                  cash_exposure=pfolio_acct.cash_exposures[k], ))
+                daily_pfolio_logs.append((date, daily_pfolio_logs_collection))
+            last_date = date
+
             if t in self.removal_times:
                 for j in self.removal_times[t]:
                     self.logger.warning(f'Removing pair {j=}, {self.pairs[j]=}')
-                    for acct in accts:
-                        acct.remove_pair(j)
+                    pfolio_acct.remove_pair(j)
 
             raw_signals = self.signals_matrix[i]
             if self.cfg.ema_hf_periods:
@@ -250,13 +281,24 @@ class Simulator:
             else:
                 signals = raw_signals
 
-            for acct in accts:
-                acct.trade(signals, self.exec_prices_matrix[i])
+            prices = self.exec_prices_matrix[i]
+            dollars_traded = pfolio_acct.trade(signals, prices)
+
+            for v in range(n_variations):
+                pair_trade = [(idx[0], d) for idx, d in np.ndenumerate(dollars_traded[v]) if d != 0]
+
+                for j, trade_size in pair_trade:
+                    trade_logs[v].append(TradeLog(
+                        dollar_size=trade_size,
+                        pair_idx=j,
+                        signal=signals[j],
+                        price=prices[j],
+                        timestamp=t,
+                    ))
 
         return SimResults(
-            cfgs_accts=list(zip(self.opt_cfgs, (acct.serialise() for acct in accts))),
-            signals_matrix=self.signals_matrix,
+            trade_logs=trade_logs,
+            daily_pfolio_logs=daily_pfolio_logs,
             pairs=self.pairs,
-            times=self.times,
-            prices=self.exec_prices_matrix
+            opt_cfgs=self.opt_cfgs
         )

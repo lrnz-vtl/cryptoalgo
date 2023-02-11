@@ -2,11 +2,12 @@ import datetime
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Union
 
 import pandas as pd
 
 
-def to_datetime(x: pd.Series) -> pd.Series:
+def to_datetime(x: pd.Series) -> Union[pd.Series, datetime.datetime]:
     return pd.to_datetime(x, unit='ms')
 
 

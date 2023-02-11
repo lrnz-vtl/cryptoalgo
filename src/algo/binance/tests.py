@@ -9,7 +9,8 @@ from sklearn.preprocessing import RobustScaler
 from algo.binance.backtest import SimulatorCfg, Simulator, SimResults, OptimiserCfg
 from algo.binance.features import FeatureOptions, VolumeOptions
 from algo.binance.fit import fit_eval_model, UniverseDataOptions, fit_product
-from algo.binance.coins import Universe, load_universe_candles, all_symbols, top_mcap, symbol_to_ids
+from algo.binance.coins import Universe, load_universe_data, all_symbols, top_mcap, symbol_to_ids, DataType, \
+    AggTradesType, SpotType, KlineType
 from algo.binance.fit import UniverseDataStore, ModelOptions, ResidOptions
 from algo.binance.sim_reports import plot_results
 
@@ -33,7 +34,7 @@ class TestUniverseDataStore(unittest.TestCase):
 
         time_col = 'Close time'
 
-        df = load_universe_candles(universe, start_date, end_date, '5m')
+        df = load_universe_data(universe, start_date, end_date, '5m')
 
         df.set_index(['pair', time_col], inplace=True)
         self.df = df
@@ -112,6 +113,8 @@ class TestSymbols(unittest.TestCase):
 
 class TestBack(unittest.TestCase):
     def __init__(self, *args, **kwargs):
+        logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
+                            level=logging.DEBUG)
         self.logger = logging.getLogger(__name__)
 
         super().__init__(*args, **kwargs)
@@ -120,7 +123,7 @@ class TestBack(unittest.TestCase):
         opts: list[OptimiserCfg] = [
             OptimiserCfg(
                 comm=0.0001,
-                risk_coef=10**(-5),
+                risk_coef=10 ** (-5),
                 poslim=10000,
                 cash_flat=False,
                 mkt_flat=True,
@@ -135,12 +138,15 @@ class TestBack(unittest.TestCase):
             #     max_trade_size_usd=1000,
             # )
         ]
-        cfg = SimulatorCfg(exp_name='spot_slow',
-                           end_time=datetime.datetime(year=2022, month=8, day=15),
-                           trade_pair_limit=2,
-                           opts=opts,
-                           ema_hf_periods=5,
-                           )
+        cfg = SimulatorCfg(
+            data_type=KlineType('5m'),
+            market_type=SpotType(),
+            exp_name='spot_slow',
+            end_time=datetime.datetime(year=2022, month=8, day=15),
+            trade_pair_limit=2,
+            opts=opts,
+            ema_hf_periods=5,
+        )
         self.sim = Simulator(cfg)
 
         res = self.sim.run()

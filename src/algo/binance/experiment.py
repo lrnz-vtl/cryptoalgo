@@ -12,7 +12,7 @@ from sklearn.metrics import r2_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from algo.binance.coins import Universe, load_universe_candles
+from algo.binance.coins import Universe, load_universe_data
 from algo.binance.features import FeatureOptions, VolumeOptions
 from algo.binance.fit import UniverseDataOptions, ResidOptions, UniverseDataStore, ModelOptions, fit_eval_model, \
     fit_product, ProductFitData, ProductFitResult

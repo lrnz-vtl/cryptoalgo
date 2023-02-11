@@ -5,6 +5,8 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 import boto3
+
+from algo.binance.data_types import DataType, KlineType, AggTradesType
 from algo.definitions import ROOT_DIR
 import queue
 import polars as pl
@@ -13,7 +15,23 @@ bucket_name = 'data.binance.vision'
 
 
 class BucketDataProcessor:
-    def __init__(self, process_csv: Callable[[Path], pl.DataFrame], prefix: str):
+    def __init__(self, process_csv: Callable[[Path], pl.DataFrame], data_type:DataType, spot:bool):
+
+        self.data_type = data_type
+
+        if isinstance(data_type, KlineType):
+            if spot:
+                prefix = 'data/spot/monthly/klines/'
+            else:
+                prefix = 'data/futures/um/monthly/klines/'
+
+        elif isinstance(data_type, AggTradesType):
+            if spot:
+                prefix = 'data/spot/monthly/aggTrades/'
+            else:
+                prefix = 'data/futures/um/monthly/aggTrades/'
+        else:
+            raise ValueError
 
         assert prefix.startswith('data')
         subpath = prefix[4:]
@@ -37,20 +55,31 @@ class BucketDataProcessor:
 
         for bucket_object in bucket.objects.filter(Prefix=self.prefix):
 
+            logger.debug(f'Read unfiltered {bucket_object.key=}')
+
             if not bucket_object.key.endswith('.zip'):
                 continue
 
             fname = bucket_object.key.split('/')[-1]
-            pair_name = bucket_object.key.split('/')[-2]
+            fname_parquet = fname.replace('.zip', '.parquet')
+
+            if isinstance(self.data_type, KlineType):
+                pair_name = bucket_object.key.split('/')[-3]
+                freq = bucket_object.key.split('/')[-2]
+                if freq != self.data_type.freq:
+                    continue
+                dst_path_parquet = self.base_path / pair_name / freq / fname_parquet
+            elif isinstance(self.data_type, AggTradesType):
+                pair_name = bucket_object.key.split('/')[-2]
+                dst_path_parquet = self.base_path / pair_name / fname_parquet
+            else:
+                raise ValueError
 
             if not pair_name.endswith('USDT') and not pair_name.endswith('BUSD'):
                 continue
 
-            logger.info(f'Read {bucket_object.key=}')
+            logger.info(f'Processing {bucket_object.key=}')
 
-            fname_parquet = fname.replace('.zip', '.parquet')
-
-            dst_path_parquet = self.base_path / pair_name / fname_parquet
             if os.path.exists(dst_path_parquet):
                 continue
 

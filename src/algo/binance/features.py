@@ -5,6 +5,8 @@ from algo.cpp.cseries import compute_ema, compute_expsum
 import pandas as pd
 from pydantic import BaseModel
 
+from algo.binance.coins import DataType
+
 ms_in_hour = (10 ** 3) * 60 * 60
 
 
@@ -25,7 +27,7 @@ def features_from_data(df: pd.DataFrame, ema_options: FeatureOptions) -> pd.Data
 
     assert len(ema_options.decay_hours) > 0
 
-    price_ts = ((df['Close'] + df['Open']) / 2.0).rename('price')
+    price_ts = df['price']
 
     def make_ema(dh):
         dms = ms_in_hour * dh
@@ -49,7 +51,7 @@ def features_from_data(df: pd.DataFrame, ema_options: FeatureOptions) -> pd.Data
         volume_norm = volume_ts.median()
 
         if ema_options.volume_options.include_logretvol:
-            logret_ts = (np.log(df['Close']) - np.log(df['Open'])).rename('logret')
+            logret_ts = df['logret']
 
             for dh in decays_hours:
                 # NOTE Assumes five minutes separated rows
@@ -60,7 +62,7 @@ def features_from_data(df: pd.DataFrame, ema_options: FeatureOptions) -> pd.Data
                 fts.append(pd.Series(ft, index=price_ts.index, name=f'logretvol_{dh}'))
 
         if ema_options.volume_options.include_imbalance:
-            buy_volume = df['Taker buy base asset volume'] / volume_norm
+            buy_volume = df['BuyVolume'] / volume_norm
             sell_volume = df['Volume'] / volume_norm - buy_volume
 
             for dh in decays_hours:
