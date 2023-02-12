@@ -1,5 +1,8 @@
 import argparse
 import logging
+import unittest
+from pathlib import Path
+
 import polars as pl
 from polars import exceptions
 
@@ -21,8 +24,19 @@ def try_process(csv_path, has_header: bool, spot: bool, data_type: DataType) -> 
 def process_csv(csv_path, spot: bool, data_type: DataType):
     try:
         return try_process(csv_path, False, spot, data_type)
-    except exceptions.ComputeError:
+    except (exceptions.ComputeError, AssertionError):
         return try_process(csv_path, True, spot, data_type)
+
+
+class TestPath(unittest.TestCase):
+
+    def test_a(self):
+        basep = Path('/home/lorenzo/algo/data/data.binance.vision/futures/um/monthly/klines')
+        fname = 'ZRXUSDT-5m-2022-10.csv'
+        coin = fname.split('-')[0]
+        fullname = basep / coin / '5m' / fname
+
+        process_csv(fullname, False, KlineType(freq='5m'))
 
 
 if __name__ == '__main__':
@@ -49,5 +63,5 @@ if __name__ == '__main__':
                         )
 
     p = BucketDataProcessor(process_csv=lambda x: process_csv(x, data_type=data_type, spot=spot), data_type=data_type,
-                            spot=spot)
+                            spot=spot, keep_csv=False)
     p.run()

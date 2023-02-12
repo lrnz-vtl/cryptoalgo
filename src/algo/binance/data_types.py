@@ -46,6 +46,8 @@ class KlineType(DataType):
     freq: str
 
     def process_frame(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        allowed_dtypes = {pl.Int64, pl.Float64, pl.Boolean}
+        assert all(t in allowed_dtypes for t in df.dtypes)
         return df
 
     def buy_volume_op(self, df: pd.DataFrame) -> pd.Series:
@@ -73,6 +75,7 @@ class KlineType(DataType):
 
 class AggTradesType(DataType):
 
+    # NOTE Some days are missing in the monthly files...
     def process_frame(self, df: pl.LazyFrame) -> pl.LazyFrame:
         return (df
                 .with_columns(

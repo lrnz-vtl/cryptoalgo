@@ -25,6 +25,7 @@ matplotlib = "^3.6.3"
 memory-profiler = "^0.61.0"
 line-profiler = "^4.0.2"
 parquet-tools = "^0.2.12"
+ipykernel = "^6.21.1"
 
 
 [build-system]

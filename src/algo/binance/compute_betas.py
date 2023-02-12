@@ -21,6 +21,7 @@ class BetaStore:
 
         ret_ts: pd.Series = np.log(forward_price_ts) - np.log(price_ts)
         ret_df = ret_ts.unstack(level=0)
+        ret_df.to_parquet('/home/lorenzo/ret_df.parquet')
 
         idx = (ret_df.isna().sum(axis=1) <= (ret_df.shape[0] // 2))
         ret_df = ret_df.loc[idx].dropna(axis=1)

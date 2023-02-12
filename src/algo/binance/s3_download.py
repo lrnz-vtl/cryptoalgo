@@ -15,9 +15,10 @@ bucket_name = 'data.binance.vision'
 
 
 class BucketDataProcessor:
-    def __init__(self, process_csv: Callable[[Path], pl.DataFrame], data_type:DataType, spot:bool):
+    def __init__(self, process_csv: Callable[[Path], pl.DataFrame], data_type: DataType, spot: bool, keep_csv: bool):
 
         self.data_type = data_type
+        self.keep_csv = keep_csv
 
         if isinstance(data_type, KlineType):
             if spot:
@@ -54,8 +55,6 @@ class BucketDataProcessor:
 
         for bucket_object in bucket.objects.filter(Prefix=self.prefix):
 
-            # logger.debug(f'Read unfiltered {bucket_object.key=}')
-
             if not bucket_object.key.endswith('.zip'):
                 continue
 
@@ -80,7 +79,7 @@ class BucketDataProcessor:
             if os.path.exists(dst_path_parquet):
                 continue
 
-            logger.info(f'Processing {bucket_object.key=}')
+            logger.debug(f'Processing {bucket_object.key=}')
 
             arg = (bucket, bucket_object, dst_path_parquet, fname)
             self.q.put(arg)
@@ -108,7 +107,8 @@ class BucketDataProcessor:
         df = self.process_csv(csv_path)
         df.write_parquet(dst_path_parquet)
 
-        os.remove(csv_path)
+        if not self.keep_csv:
+            os.remove(csv_path)
 
         logger.info(f'Saved {dst_path_parquet}')
 
