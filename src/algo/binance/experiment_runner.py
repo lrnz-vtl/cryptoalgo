@@ -14,8 +14,8 @@ from sklearn.linear_model import Ridge
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from algo.binance.coins import SpotType, Universe, MarketType, FutureType
-from algo.binance.data_types import KlineType, DataType, AggTradesType
+from algo.binance.coins import SpotType, Universe, MarketType, FutureType, MarketTypeModel
+from algo.binance.data_types import KlineType, DataType, AggTradesType, DataTypeModel
 from algo.binance.evaluation import plot_eval
 from algo.binance.experiment import ExpArgs, Experiment, fit_eval_products, Validator, EXP_BASEP
 from algo.binance.features import VolumeOptions, FeatureOptions
@@ -69,8 +69,8 @@ def make_exp_args(n_coins: int, market_type: MarketType, data_type: DataType, te
 
     exp_args = ExpArgs(
         universe=universe,
-        market_type=market_type,
-        data_type=data_type,
+        market_type=MarketTypeModel(t=market_type),
+        data_type=DataTypeModel(t=data_type),
         start_date=start_date,
         end_date=end_date,
         feature_options=feature_options,

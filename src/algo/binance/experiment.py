@@ -12,8 +12,8 @@ from sklearn.metrics import r2_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from algo.binance.coins import Universe, MarketType, FutureType
-from algo.binance.data_types import DataType, KlineType
+from algo.binance.coins import Universe, MarketType, FutureType, MarketTypeModel
+from algo.binance.data_types import DataType, KlineType, DataTypeModel
 from algo.binance.dataloader import load_universe_data
 from algo.binance.features import FeatureOptions, VolumeOptions
 from algo.binance.fit import UniverseDataOptions, ResidOptions, UniverseDataStore, ModelOptions, fit_eval_model, \
@@ -33,8 +33,8 @@ class ExpArgs(BaseModel):
     feature_options: FeatureOptions
     ro: ResidOptions
     ud_options: UniverseDataOptions
-    market_type: MarketType
-    data_type: DataType
+    market_type: MarketTypeModel
+    data_type: DataTypeModel
     tto: TrainTestOptions
 
     class Config:
@@ -57,7 +57,8 @@ class Experiment:
         self.global_fit_results = None
         self.args = args
 
-        generator = load_universe_data(args.universe, args.start_date, args.end_date, args.market_type, args.data_type)
+        generator = load_universe_data(args.universe, args.start_date, args.end_date, args.market_type.t,
+                                       args.data_type.t)
 
         self.uds = UniverseDataStore(generator, args.feature_options, args.tto, args.ro)
 

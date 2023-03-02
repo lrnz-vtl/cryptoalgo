@@ -3,7 +3,10 @@ import time
 import unittest
 from abc import ABC, abstractmethod
 import datetime
-from pydantic import BaseModel
+from asyncio import Protocol
+from typing import Union, Literal
+
+from pydantic import BaseModel, Field
 
 from algo.binance.coingecko import symbol_to_ids, get_mcap, RateLimitException, get_mcaps_today, exclude_symbols
 from algo.binance.data_types import DataType
@@ -12,20 +15,27 @@ from algo.definitions import ROOT_DIR
 basep = ROOT_DIR / 'data' / 'data.binance.vision'
 
 
-class MarketType(BaseModel, ABC):
-    @abstractmethod
+class MarketType(Protocol):
     def subpath(self) -> str:
-        pass
+        ...
 
 
-class FutureType(MarketType):
+class FutureType(BaseModel):
+    mtype: Literal['future'] = 'future'
+
     def subpath(self):
         return 'futures/um'
 
 
-class SpotType(MarketType):
+class SpotType(BaseModel):
+    mtype: Literal['spot'] = 'spot'
+
     def subpath(self):
         return 'spot'
+
+
+class MarketTypeModel(BaseModel):
+    t: Union[SpotType, FutureType] = Field(..., discriminator='mtype')
 
 
 # Some ids correspond to multiple symbols

@@ -16,9 +16,7 @@ PairDataGenerator = Generator[tuple[str, Optional[pd.DataFrame]], None, None]
 def load_data(pair_name: str, market_type: MarketType, data_type: DataType, start_date: datetime.datetime,
               end_date: datetime.datetime) \
         -> Optional[pd.DataFrame]:
-    folder = basep / market_type.subpath() / 'monthly' / data_type.subpath() / pair_name
-    if isinstance(data_type, KlineType):
-        folder = folder / data_type.freq
+    folder = basep / market_type.subpath() / 'monthly' / data_type.make_subpath_from_pair(pair_name)
     p = re.compile(data_type.filename_pattern(pair_name))
 
     logger = logging.getLogger(__name__)

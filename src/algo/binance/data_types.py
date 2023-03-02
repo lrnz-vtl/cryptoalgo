@@ -1,48 +1,43 @@
-from abc import ABC, abstractmethod
+from typing import Union, Literal, Protocol
+
 import numpy as np
 import pandas as pd
 import polars as pl
-from pydantic import BaseModel, Extra
+from pydantic import BaseModel, Field
 
 MS_IN_5MIN = 1000 * 60 * 5
 
 
-class DataType(BaseModel, ABC):
+class DataType(Protocol):
 
-    @abstractmethod
-    def subpath(self) -> str:
-        pass
+    def make_subpath_from_pair(self, pair_name: str) -> str:
+        ...
 
-    @abstractmethod
     def filename_pattern(self, x: str) -> str:
-        pass
+        ...
 
-    @abstractmethod
     def timestamp_col(self) -> str:
-        pass
+        ...
 
-    @abstractmethod
     def price_op(self, df: pd.DataFrame) -> pd.Series:
-        pass
+        ...
 
-    @abstractmethod
     def lookback_logret_op(self, df: pd.DataFrame) -> pd.Series:
-        pass
+        ...
 
-    @abstractmethod
     def buy_volume_op(self, df: pd.DataFrame) -> pd.Series:
-        pass
+        ...
 
-    @abstractmethod
     def orig_columns(self) -> list[str]:
-        pass
+        ...
 
-    @abstractmethod
     def process_frame(self, df: pl.LazyFrame) -> pl.LazyFrame:
-        pass
+        ...
 
 
-class KlineType(DataType):
+class KlineType(BaseModel):
+    dtype: Literal['kline'] = 'kline'
+
     freq: str
 
     def process_frame(self, df: pl.LazyFrame) -> pl.LazyFrame:
@@ -60,8 +55,8 @@ class KlineType(DataType):
     def filename_pattern(self, pair_name: str) -> str:
         return rf'{pair_name}-{self.freq}-(\d\d\d\d)-(\d\d).parquet'
 
-    def subpath(self):
-        return f'klines'
+    def make_subpath_from_pair(self, pair_name: str) -> str:
+        return f'klines/{pair_name}/{self.freq}'
 
     def timestamp_col(self) -> str:
         return 'Close time'
@@ -73,7 +68,8 @@ class KlineType(DataType):
         return np.log(df['Close']) - np.log(df['Open'])
 
 
-class AggTradesType(DataType):
+class AggTradesType(BaseModel):
+    dtype: Literal['agg'] = 'agg'
 
     # NOTE Some days are missing in the monthly files...
     def process_frame(self, df: pl.LazyFrame) -> pl.LazyFrame:
@@ -115,11 +111,15 @@ class AggTradesType(DataType):
     def price_op(self, df: pd.DataFrame) -> pd.Series:
         return df['vwap']
 
-    def subpath(self):
-        return 'aggTrades'
+    def make_subpath_from_pair(self, pair_name: str) -> str:
+        return f'aggTrades/{pair_name}'
 
     def filename_pattern(self, pair_name: str) -> str:
         return rf'{pair_name}-aggTrades-(\d\d\d\d)-(\d\d).parquet'
 
     def timestamp_col(self) -> str:
         return 'Timestamp_5min'
+
+
+class DataTypeModel(BaseModel):
+    t: Union[AggTradesType, KlineType] = Field(..., discriminator='dtype')
