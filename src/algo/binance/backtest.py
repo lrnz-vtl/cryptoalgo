@@ -9,7 +9,7 @@ import pydantic
 from pydantic import BaseModel
 from scipy.sparse.linalg import ArpackError
 
-from algo.binance.coins import load_universe_data, DataType, MarketType
+from algo.binance.dataloader import load_universe_data, DataType, MarketType
 from algo.binance.experiment import ExpArgs, EXP_BASEP
 from algo.binance.features import features_from_data
 from algo.binance.model import ProductModel
@@ -154,7 +154,11 @@ class Simulator:
 
         models: dict[str, ProductModel] = pd.read_pickle(self.exp_path / 'models.pkl')
 
-        exp_args: ExpArgs = ExpArgs.parse_file(self.exp_path / 'exp_args.json')
+        exp_args_path =  self.exp_path / 'exp_args.json'
+        try:
+            exp_args: ExpArgs = ExpArgs.parse_file(exp_args_path)
+        except pydantic.error_wrappers.ValidationError as e:
+            raise ValueError(str(exp_args_path)) from e
 
         start_time = exp_args.tto.test_start_time
         data_start_time = start_time - datetime.timedelta(days=30)

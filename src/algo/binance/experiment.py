@@ -12,8 +12,8 @@ from sklearn.metrics import r2_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from algo.binance.coins import Universe, MarketType
-from algo.binance.data_types import DataType
+from algo.binance.coins import Universe, MarketType, FutureType
+from algo.binance.data_types import DataType, KlineType
 from algo.binance.dataloader import load_universe_data
 from algo.binance.features import FeatureOptions, VolumeOptions
 from algo.binance.fit import UniverseDataOptions, ResidOptions, UniverseDataStore, ModelOptions, fit_eval_model, \
@@ -124,17 +124,18 @@ class TestExperiment(unittest.TestCase):
             test_start_time=datetime.datetime(year=2022, month=4, day=3),
             min_train_period=datetime.timedelta(days=30 * 2)
         )
+        universe = Universe.make_lookahead(n_coins)
 
         self.exp_args = ExpArgs(
-            mcap_date=datetime.date(year=2022, month=1, day=1),
-            n_coins=n_coins,
+            universe=universe,
             start_date=start_date,
             end_date=end_date,
             feature_options=feature_options,
             ro=ro,
             ud_options=ud_options,
-            spot=False,
-            tto=tto
+            tto=tto,
+            data_type=KlineType(freq='5m'),
+            market_type=FutureType()
         )
         super().__init__(*args, **kwargs)
 

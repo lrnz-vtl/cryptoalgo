@@ -9,10 +9,13 @@ from sklearn.preprocessing import RobustScaler
 from algo.binance.backtest import SimulatorCfg, Simulator, SimResults, OptimiserCfg
 from algo.binance.features import FeatureOptions, VolumeOptions
 from algo.binance.fit import fit_eval_model, UniverseDataOptions, fit_product
-from algo.binance.coins import Universe, load_universe_data, all_symbols, top_mcap, symbol_to_ids, DataType, \
-    AggTradesType, SpotType, KlineType
+from algo.binance.dataloader import load_universe_data
+from algo.binance.coins import Universe, all_symbols, top_mcap, symbol_to_ids, DataType, SpotType, FutureType
 from algo.binance.fit import UniverseDataStore, ModelOptions, ResidOptions
 from algo.binance.sim_reports import plot_results
+
+from algo.binance.data_types import KlineType, AggTradesType
+from binance.experiment_runner import run
 
 
 class TestUniverseDataStore(unittest.TestCase):
@@ -111,6 +114,41 @@ class TestSymbols(unittest.TestCase):
         top_mcap(datetime.date(year=2022, month=1, day=1), dry_run=True)
 
 
+class TestExp(unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
+                            level=logging.INFO)
+
+        self.logger = logging.getLogger(__name__)
+
+    def test_a(self):
+        market_type = SpotType()
+        data_type = KlineType(freq='5m')
+        run(name='test_spot_220211', n_coins=4, market_type=market_type, data_type=data_type, test=True, lookahead=True)
+
+    def test_a1(self):
+        market_type = SpotType()
+        data_type = AggTradesType()
+        run(name='test_spot_agg_220211', n_coins=4, market_type=market_type, data_type=data_type, test=True,
+            lookahead=True)
+
+    def test_a2(self):
+        market_type = FutureType()
+        data_type = KlineType(freq='5m')
+        run(name='test_220211', n_coins=4, market_type=market_type, data_type=data_type, test=True, lookahead=True)
+
+    def test_b(self):
+        market_type = SpotType()
+        data_type = KlineType(freq='5m')
+        run(name='test100_220211', n_coins=100, market_type=market_type, data_type=data_type, test=True, lookahead=True)
+
+    def test_b1(self):
+        market_type = SpotType()
+        data_type = AggTradesType()
+        run(name='test100_220211', n_coins=100, market_type=market_type, data_type=data_type, test=True, lookahead=True)
+
+
 class TestBack(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
@@ -139,9 +177,9 @@ class TestBack(unittest.TestCase):
             # )
         ]
         cfg = SimulatorCfg(
-            data_type=KlineType('5m'),
+            data_type=KlineType(freq='5m'),
             market_type=SpotType(),
-            exp_name='spot_slow',
+            exp_name='test_220211',
             end_time=datetime.datetime(year=2022, month=8, day=15),
             trade_pair_limit=2,
             opts=opts,
