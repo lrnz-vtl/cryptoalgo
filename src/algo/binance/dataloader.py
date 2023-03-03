@@ -7,10 +7,23 @@ import datetime
 from algo.binance.coins import MarketType, Universe, SpotType, spot_to_future_names
 from algo.binance.data_types import DataType, KlineType
 from algo.definitions import ROOT_DIR
+from algo.binance.utils import to_datetime
 
 basep = ROOT_DIR / 'data' / 'data.binance.vision'
 
 PairDataGenerator = Generator[tuple[str, Optional[pd.DataFrame]], None, None]
+
+
+def validate_df(df: pd.DataFrame, timestamp_col: str):
+    zero_vol = (df['Volume'] == 0)
+    all_following_zero = zero_vol.iloc[::-1].cumprod().iloc[::-1]
+    zero_times = df.loc[all_following_zero > 0, timestamp_col]
+    tol_time = datetime.timedelta(days=1)
+    earliest_time = to_datetime(df[timestamp_col].max()) - tol_time
+    if len(zero_times) > 0:
+        t = to_datetime(zero_times.values[0])
+        if t < earliest_time:
+            raise ValueError(f'All volumes after {t} are zero')
 
 
 def load_data(pair_name: str, market_type: MarketType, data_type: DataType, start_date: datetime.datetime,
@@ -55,9 +68,10 @@ def load_data(pair_name: str, market_type: MarketType, data_type: DataType, star
             subdf[timestamp_col] = subdf[timestamp_col].astype(int)
 
             close_time = pd.to_datetime(subdf[timestamp_col], unit='ms')
-            idx = (close_time >= start_date) & (close_time <= end_date)
+            idx = (close_time >= start_date) & (close_time < end_date)
 
-            dfs.append(subdf[idx])
+            if not subdf[idx].empty:
+                dfs.append(subdf[idx])
 
     if not dfs:
         logger.error(f'No data found in {folder} for the chosen period')
@@ -67,6 +81,11 @@ def load_data(pair_name: str, market_type: MarketType, data_type: DataType, star
     df['logret'] = data_type.lookback_logret_op(df)
     df['price'] = data_type.price_op(df)
     df['BuyVolume'] = data_type.buy_volume_op(df)
+
+    try:
+        validate_df(df, timestamp_col)
+    except ValueError as e:
+        raise ValueError(pair_name) from e
     return df
 
 

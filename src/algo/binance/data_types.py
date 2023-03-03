@@ -10,6 +10,9 @@ MS_IN_5MIN = 1000 * 60 * 5
 
 class DataType(Protocol):
 
+    def subpath(self) -> str:
+        ...
+
     def make_subpath_from_pair(self, pair_name: str) -> str:
         ...
 
@@ -55,8 +58,11 @@ class KlineType(BaseModel):
     def filename_pattern(self, pair_name: str) -> str:
         return rf'{pair_name}-{self.freq}-(\d\d\d\d)-(\d\d).parquet'
 
+    def subpath(self):
+        return 'klines'
+
     def make_subpath_from_pair(self, pair_name: str) -> str:
-        return f'klines/{pair_name}/{self.freq}'
+        return f'{self.subpath()}/{pair_name}/{self.freq}'
 
     def timestamp_col(self) -> str:
         return 'Close time'
@@ -111,8 +117,11 @@ class AggTradesType(BaseModel):
     def price_op(self, df: pd.DataFrame) -> pd.Series:
         return df['vwap']
 
+    def subpath(self):
+        return 'aggTrades'
+
     def make_subpath_from_pair(self, pair_name: str) -> str:
-        return f'aggTrades/{pair_name}'
+        return f'{self.subpath()}/{pair_name}'
 
     def filename_pattern(self, pair_name: str) -> str:
         return rf'{pair_name}-aggTrades-(\d\d\d\d)-(\d\d).parquet'

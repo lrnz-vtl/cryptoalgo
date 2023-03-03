@@ -127,6 +127,16 @@ def run_exp():
     return run_name
 
 
+def test_exp2():
+    logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
+                        level=logging.DEBUG)
+    market_type = FutureType()
+    data_type = KlineType(freq='5m')
+    run_name = 'test_220211'
+    run(name=run_name, n_coins=4, market_type=market_type, data_type=data_type, test=True, lookahead=False)
+    return run_name
+
+
 @pytest.fixture()
 def run_sim(run_exp):
     run_name = run_exp
@@ -153,7 +163,7 @@ def run_sim(run_exp):
     results = sim.run()
     dest_path = SIMS_BASEP / run_name
     os.makedirs(dest_path, exist_ok=True)
-    pd.to_pickle(results, dest_path/'results.pkl')
+    pd.to_pickle(results, dest_path / 'results.pkl')
     return results
 
 

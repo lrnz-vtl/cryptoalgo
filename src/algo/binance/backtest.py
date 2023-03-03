@@ -10,7 +10,7 @@ from scipy.sparse.linalg import ArpackError
 
 from algo.binance.dataloader import load_universe_data, DataType, MarketType
 from algo.binance.experiment import ExpArgs, EXP_BASEP
-from algo.binance.features import features_from_data
+from algo.binance.features import features_from_data, VolumeZeroError, NanFeatureException
 from algo.binance.model import ProductModel
 from algo.binance.optimiser import OptimiserCfg, Optimiser
 from algo.binance.utils import read_json, to_datetime
@@ -157,7 +157,12 @@ class Simulator:
         for pair, df in load_universe_data(mkt_pairs, data_start_time, end_time, cfg.market_type.t, cfg.data_type.t):
             if df is None:
                 raise RuntimeError(f'Could not load data {mkt_pairs=}, {data_start_time=}, {end_time=}')
-            new_mkt_features = features_from_data(df, exp_args.feature_options)
+            try:
+                new_mkt_features = features_from_data(df, exp_args.feature_options)
+            except NanFeatureException as e:
+                raise NanFeatureException(pair) from e
+            except VolumeZeroError as e:
+                raise VolumeZeroError(pair) from e
             new_mkt_features.columns = [f'{pair}_{col}' for col in new_mkt_features.columns]
             mkt_features.append(new_mkt_features)
         mkt_features = pd.concat(mkt_features, axis=1)

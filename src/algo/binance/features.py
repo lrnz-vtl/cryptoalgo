@@ -10,6 +10,14 @@ from algo.binance.coins import DataType
 ms_in_hour = (10 ** 3) * 60 * 60
 
 
+class NanFeatureException(ValueError):
+    pass
+
+
+class VolumeZeroError(ValueError):
+    pass
+
+
 @dataclass
 class VolumeOptions:
     include_logretvol: bool
@@ -28,6 +36,7 @@ def features_from_data(df: pd.DataFrame, ema_options: FeatureOptions) -> pd.Data
     assert len(ema_options.decay_hours) > 0
 
     price_ts = df['price']
+    assert ~price_ts.isna().any()
 
     def make_ema(dh):
         dms = ms_in_hour * dh
@@ -48,10 +57,20 @@ def features_from_data(df: pd.DataFrame, ema_options: FeatureOptions) -> pd.Data
     if ema_options.volume_options is not None:
 
         volume_ts = df['Volume']
+
+        assert not volume_ts.isna().any()
+
         volume_norm = volume_ts.median()
+        # FIXME It seems sometimes volumes starts being zero on USDT and transfers to BUSD
+        # assert volume_norm > 0
+        if not (volume_norm > 0):
+            raise VolumeZeroError()
 
         if ema_options.volume_options.include_logretvol:
             logret_ts = df['logret']
+            assert not logret_ts.isna().any()
+
+            assert (logret_ts.index == volume_ts.index).all()
 
             for dh in decays_hours:
                 # NOTE Assumes five minutes separated rows
@@ -64,6 +83,10 @@ def features_from_data(df: pd.DataFrame, ema_options: FeatureOptions) -> pd.Data
         if ema_options.volume_options.include_imbalance:
             buy_volume = df['BuyVolume'] / volume_norm
             sell_volume = df['Volume'] / volume_norm - buy_volume
+
+            if buy_volume.isna().any():
+                raise NanFeatureException('buyvolume')
+            assert not sell_volume.isna().any()
 
             for dh in decays_hours:
                 # NOTE Assumes five minutes separated rows

@@ -8,7 +8,7 @@ from algo.cpp.cseries import shift_forward
 from sklearn.preprocessing import RobustScaler
 from algo.binance.compute_betas import BetaStore
 from algo.binance.dataloader import PairDataGenerator
-from algo.binance.features import ms_in_hour, FeatureOptions, features_from_data
+from algo.binance.features import ms_in_hour, FeatureOptions, features_from_data, VolumeZeroError, NanFeatureException
 from algo.binance.utils import TrainTestOptions, to_datetime
 
 max_lag_hours = 48
@@ -196,10 +196,15 @@ class UniverseDataStore:
                 except NotEnoughDataException as e:
                     self.logger.warning(f'Not enough data for {pair=}. Skipping.')
                     continue
+                except VolumeZeroError as e:
+                    raise VolumeZeroError(pair) from e
+                except NanFeatureException as e:
+                    raise NanFeatureException(pair) from e
 
                 self.pds[pair] = ds
 
         if mkt_features:
+            # FIXME Some of these are nans
             self.mkt_features = pd.concat(mkt_features, axis=1)
         else:
             self.mkt_features = None
