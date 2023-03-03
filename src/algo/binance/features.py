@@ -37,7 +37,7 @@ def features_from_data(df: pd.DataFrame, ema_options: FeatureOptions) -> pd.Data
         logema0 = np.log(price_ts)
         decays_hours = ema_options.decay_hours
     else:
-        logema0 = make_ema(ema_options.decay_hours[0])
+        logema0 = np.log(make_ema(ema_options.decay_hours[0]))
         decays_hours = ema_options.decay_hours[1:]
 
     for dh in decays_hours:

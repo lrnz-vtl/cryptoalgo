@@ -85,6 +85,10 @@ class UniverseFitData:
     vol_rescalings: Optional[dict[str, float]]
     betas: Optional[dict[str, float]]
 
+    def __post_init__(self):
+        if self.vol_rescalings is not None:
+            assert all(x > 0 for x in self.vol_rescalings.values())
+
 
 @dataclass
 class UniverseFitResults:
@@ -242,6 +246,7 @@ class UniverseDataStore:
             for pair in pairs:
                 vol_rescalings[pair] = \
                     RobustScaler().fit(train_targets[pair].values.reshape(-1, 1)).scale_[0]
+                assert vol_rescalings[pair] > 0
                 train_targets[pair] /= vol_rescalings[pair]
                 test_targets[pair] /= vol_rescalings[pair]
         else:

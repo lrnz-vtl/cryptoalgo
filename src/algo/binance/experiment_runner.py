@@ -150,7 +150,7 @@ def run_experiment(exp: Experiment, dst_path: Path):
 
 
 def run(name: str, n_coins: int, market_type: MarketType, data_type: DataType, test: bool,
-        lookahead: bool = False):
+        lookahead: bool = False, log_level=logging.INFO):
     fmt = '[%(asctime)s] {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s'
 
     dst_path = EXP_BASEP / name
@@ -158,7 +158,7 @@ def run(name: str, n_coins: int, market_type: MarketType, data_type: DataType, t
 
     logging.basicConfig(
         filename=dst_path / 'log.log',
-        level=logging.DEBUG,
+        level=log_level,
         format=fmt,
         datefmt='%H:%M:%S'
     )
